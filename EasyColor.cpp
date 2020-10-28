@@ -9,6 +9,16 @@ EasyColor::HSVRGB::HSVRGB()
 
 }
 
+EasyColor::CMYKRGB::CMYKRGB()
+{
+
+}
+
+EasyColor::HSLRGB::HSLRGB()
+{
+
+}
+
 long EasyColor::HSVRGB::map(long x, long in_min, long in_max, long out_min, long out_max)
 {
     long divisor = (in_max - in_min);
@@ -24,8 +34,8 @@ rgb EasyColor::HSVRGB::HSVtoRGB(hsv in, rgb out)
     if (in.h < 0)   in.h += 360;
 
     in.h = constrain(in.h, 0, 360);
-    in.s = constrain(in.s, 0, 1);
-    in.v = constrain(in.v, 0, 1);
+    in.s = constrain((in.s/100.0), 0, 1); //changed to work with LVGL
+    in.v = constrain((in.v/100.0), 0, 1); //changed to work with LVGL
 
     float c = in.v * in.s;
     float x = c * (1 - fabsf (fmod ((in.h / HUE_ANGLE), 2) - 1));
@@ -77,6 +87,9 @@ rgb EasyColor::HSVRGB::HSVtoRGB(hsv in, rgb out)
     out.g = (gp + m) * 255;
     out.b = (bp + m) * 255;
   
+    Serial.println(out.r);
+    Serial.println(out.g);
+    Serial.println(out.b);
     return out;
 }
 

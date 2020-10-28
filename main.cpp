@@ -29,6 +29,7 @@ unsigned long time_to_next = millis();
 
 //CONVERSOR DE CORES
 EasyColor::HSVRGB hsvConverter;
+EasyColor::CMYKRGB cmykConverter;
 EasyColor rgb2rgb;
 
 //PROTÓTIPOS DE FUNÇÕES
@@ -42,27 +43,20 @@ void colorSample();
 void loginScreen();
 void dashboard();
 void tabs();
-void typing(); //TODO: apagar
+
+void hsvSample();
+void colorToSample();
 
 void hsv_plus_minus(lv_obj_t target);
-
-void slider_hue_rgb(lv_obj_t target);
-void slider_saturation_rgb(lv_obj_t target);
-void slider_value_rgb(lv_obj_t target);
-
-void slider_hue_event_cb(lv_obj_t target); //slider HSV - HUE
 
 void start_button(lv_obj_t target);
 void spinbox_ink_volume(lv_obj_t target);
 
 void type_values_hsv(lv_obj_t target);
 
-void hsv_plus_minus(lv_obj_t target);
+void sliders_cmyk(lv_obj_t target);
 
 static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event);
-static void slider_hue_event_cb(lv_obj_t * slider, lv_event_t event);
-static void slider_Saturation_event_cb(lv_obj_t * slider, lv_event_t event);
-static void slider_value_event_cb(lv_obj_t * slider, lv_event_t event);
 static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event); //callback do switch do hsl
 static void btn_start_cb(lv_obj_t * obj, lv_event_t event); //callback botão start
 
@@ -95,6 +89,15 @@ lv_obj_t *color_hsv;
 
 lv_obj_t *txt_areas[3];
 lv_obj_t * btn_plus_minus_hsv;
+
+lv_obj_t * line1;
+
+lv_obj_t * slider_label_c;
+lv_obj_t * slider_label_m;
+lv_obj_t * slider_label_y;
+lv_obj_t * slider_label_k;
+
+static lv_style_t style_line;
 
 static const char * hsv_btns[] = {"H", "\n","S", "\n","V",""};
 static const char * hsv_plus_minus_btns[] = {LV_SYMBOL_MINUS,LV_SYMBOL_PLUS,""};
@@ -147,8 +150,13 @@ static void hsv_plus_minus_cb(lv_obj_t * obj, lv_event_t event){
         memset(buf,0,sizeof(buf));
         String(hsv_values.v).toCharArray(buf,sizeof(buf));
         lv_textarea_set_text(txt_areas[2],buf);
+
+        colorToSample();
+
     }
 }
+
+//TODO: Posicionar +/- próximo do volumne; labels nos textarea; sample à direita
 
 /*cb do txtarea hue. Se ele for selecionado, envia o evento
 para que o btn_plus_minus faça o incremento do valor a partir
@@ -158,6 +166,9 @@ static void txtarea_hue_cb(lv_obj_t * obj, lv_event_t event){
         txt_area_index = 0;
         Serial.println("foco no hue");
     }
+    if (event == LV_EVENT_VALUE_CHANGED){
+        colorToSample();
+    }
 } 
 
 static void txtarea_sat_cb(lv_obj_t * obj, lv_event_t event){
@@ -165,12 +176,18 @@ static void txtarea_sat_cb(lv_obj_t * obj, lv_event_t event){
         txt_area_index = 1;
         Serial.println("foco no sat");
     }
+    if (event == LV_EVENT_VALUE_CHANGED){
+        colorToSample();
+    }
 } 
 
 static void txtarea_val_cb(lv_obj_t * obj, lv_event_t event){
     if (event == LV_EVENT_FOCUSED){
         txt_area_index = 2;
         Serial.println("foco no val");
+    }
+    if (event == LV_EVENT_VALUE_CHANGED){
+        colorToSample();
     }
 } 
 
@@ -275,7 +292,12 @@ static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event){
 
             hsv_plus_minus(*color_hsv);
             lv_obj_set_hidden(btn_plus_minus_hsv,false);
-            
+
+            lv_obj_set_hidden(line1,false);
+            //TODO: HSV para RGB888 e depois RGB565
+            //lv_style_set_line_color(&style_line, LV_STATE_DEFAULT, LV_COLOR_BLUE);
+
+            colorToSample();
         }
         else{
             /*
@@ -294,6 +316,7 @@ static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event){
                 lv_obj_set_hidden(txt_areas[i],true);
             }
             lv_obj_set_hidden(btn_plus_minus_hsv,true);
+            lv_obj_set_hidden(line1,true);
             
         }
     }
@@ -313,43 +336,87 @@ static void btn_start_cb(lv_obj_t * obj, lv_event_t event){
     }
 }
 
-//rgb saturation
-static void slider_Saturation_event_cb(lv_obj_t * slider, lv_event_t event){
-    if(event == LV_EVENT_VALUE_CHANGED) {
-        //uint16_t value_of = lv_slider_get_value(slider);
-        //static char buf[5]; /* max 3 bytes for number plus 1 null terminating byte */
-        //snprintf(buf, 5, "%u\nS", value_of);
-        //lv_label_set_text(slider_label_sat, buf);
-        //lv_cpicker_set_saturation(cpicker,value_of);
-        
-        //Serial.println(buf);
-    }
+void colorToSample(){
+            rgb out_rgb;
+            hsv in_hsv;
+            in_hsv.h = hsv_values.h;
+            in_hsv.s = hsv_values.s;
+            in_hsv.v = hsv_values.v;
+            out_rgb  =  hsvConverter.HSVtoRGB(in_hsv,out_rgb);
+            lv_color_t lvgl_color_format;
+            
+            lvgl_color_format.full = rgb2rgb.RGB24toRGB16(out_rgb.r,out_rgb.g,out_rgb.b);
+            lv_style_set_line_color(&style_line, LV_STATE_DEFAULT, lvgl_color_format);
+            Serial.println("sample");
+            Serial.println(sizeof(uint16_t));
+            Serial.println(sizeof(double));
 }
 
-static void slider_value_event_cb(lv_obj_t * slider, lv_event_t event){
-    if(event == LV_EVENT_VALUE_CHANGED) {
-        //uint16_t value_of = lv_slider_get_value(slider);
-        //static char buf[5]; /* max 3 bytes for number plus 1 null terminating byte */
-        //snprintf(buf, 5, "%u\nV", value_of);
-        //lv_label_set_text(slider_label_val, buf);
-        //lv_cpicker_set_value(cpicker,value_of);
-        
-        //Serial.println(buf);
-    }
+void sliders_cmyk(lv_obj_t target){
+
+    lv_obj_t * slider = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider, 130);
+    lv_obj_align(slider, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 10);
+    //lv_obj_set_event_cb(slider, slider_event_cb);
+    lv_slider_set_range(slider, 0, 100);
+
+    slider_label_c = lv_label_create(&target, NULL);
+    lv_label_set_text(slider_label_c, "0%");
+    lv_obj_set_auto_realign(slider_label_c, true);
+    lv_obj_align(slider_label_c, slider, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+
+
+    lv_obj_t * slider2 = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider2, 130);
+    lv_obj_align(slider2, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 50);
+    //lv_obj_set_event_cb(slider, slider_event_cb);
+    lv_slider_set_range(slider2, 0, 100);
+
+    slider_label_m = lv_label_create(&target, NULL);
+    lv_label_set_text(slider_label_m, "0%");
+    lv_obj_set_auto_realign(slider_label_m, true);
+    lv_obj_align(slider_label_m, slider2, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    
+
+    lv_obj_t * slider3 = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider3, 130);
+    lv_obj_align(slider3, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 90);
+    //lv_obj_set_event_cb(slider, slider_event_cb);
+    lv_slider_set_range(slider3, 0, 100);
+
+    slider_label_y = lv_label_create(&target, NULL);
+    lv_label_set_text(slider_label_y, "0%");
+    lv_obj_set_auto_realign(slider_label_y, true);
+    lv_obj_align(slider_label_y, slider3, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    
+
+    lv_obj_t * slider4 = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider4, 130);
+    lv_obj_align(slider4, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 130);
+    //lv_obj_set_event_cb(slider, slider_event_cb);
+    lv_slider_set_range(slider4, 0, 100);
+
+    slider_label_k = lv_label_create(&target, NULL);
+    lv_label_set_text(slider_label_k, "0%");
+    lv_obj_set_auto_realign(slider_label_k, true);
+    lv_obj_align(slider_label_k, slider4, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+      
 }
 
-static void slider_hue_event_cb(lv_obj_t * slider, lv_event_t event){
-    if(event == LV_EVENT_VALUE_CHANGED) {
-        //uint16_t value_of = lv_slider_get_value(slider);
-        //static char buf[5]; /* max 3 bytes for number plus 1 null terminating byte */
-        //String all = String(value_of) + "\nH";
-        //all.toCharArray(buf,sizeof(all));
-        //snprintf(buf, 5, "%u\nH", value_of);
-        //lv_label_set_text(slider_label_hue, buf);
-        //lv_cpicker_set_hue(cpicker,value_of);
-        
-        //Serial.println(buf);
-    }
+void hsvSample(){
+    //TODO: copiar para o HSV e criar o evento pra trocar a cor
+    static lv_point_t line_points[] = { {0, 60}, {80, 60}};
+    lv_style_init(&style_line);
+    lv_style_set_line_width(&style_line, LV_STATE_DEFAULT, 60);
+    lv_style_set_line_color(&style_line, LV_STATE_DEFAULT, LV_COLOR_BLUE);
+    lv_style_set_line_rounded(&style_line, LV_STATE_DEFAULT, false);
+
+    /*Create a line and apply the new style*/
+    
+    line1 = lv_line_create(color_hsv, NULL);
+    lv_line_set_points(line1, line_points, 2);     /*Set the points*/
+    lv_obj_add_style(line1, LV_LINE_PART_MAIN, &style_line);     /*Set the points*/
+    lv_obj_align(line1, NULL, LV_ALIGN_IN_TOP_LEFT, 116, 60);
 }
 
 void hsv_plus_minus(lv_obj_t target){
@@ -380,8 +447,6 @@ void start_button(lv_obj_t target){
 }
 
 void hsv_cpicker_choice(lv_obj_t  dst){
-
-
     hsv_matrix_button = lv_btnmatrix_create(&dst, NULL);
     lv_btnmatrix_set_map(hsv_matrix_button, hsv_btns);
 
@@ -397,52 +462,6 @@ void hsv_cpicker_choice(lv_obj_t  dst){
     lv_btnmatrix_set_btn_ctrl_all(hsv_matrix_button, LV_BTNMATRIX_CTRL_CHECKABLE);
     lv_obj_set_event_cb(hsv_matrix_button, hsv_matrix_button_cb);
 
-}
-
-void slider_hue_rgb(lv_obj_t target){
-    slider_hue = lv_slider_create(&target, NULL);
-    lv_obj_set_width(slider_hue, 170);
-    lv_obj_align(slider_hue, NULL, LV_ALIGN_IN_TOP_LEFT, 26, 54);
-    lv_obj_set_event_cb(slider_hue, slider_hue_event_cb);
-    lv_slider_set_range(slider_hue, 0, 360);
-    
-    // Create a label below the slider
-    slider_label_hue = lv_label_create(&target, NULL);
-    lv_label_set_text(slider_label_hue, "H");
-    lv_obj_set_auto_realign(slider_label_hue, true);
-    lv_obj_align(slider_label_hue, NULL, LV_ALIGN_IN_TOP_LEFT, 0, 48);
-    
-}
-
-void slider_saturation_rgb(lv_obj_t target){
-    slider_sat = lv_slider_create(&target, NULL);
-    lv_obj_set_width(slider_sat, 120);
-    lv_obj_align(slider_sat, NULL, LV_ALIGN_IN_TOP_LEFT, 26, 80);
-    lv_obj_set_event_cb(slider_sat, slider_Saturation_event_cb);
-    lv_slider_set_range(slider_sat, 0, 100);
-    
-    /* Create a label below the slider */
-    slider_label_sat = lv_label_create(&target, NULL);
-    lv_label_set_text(slider_label_sat, "S");
-    lv_obj_set_auto_realign(slider_label_sat, true);
-    lv_obj_align(slider_label_sat, slider_label_sat, LV_ALIGN_IN_TOP_LEFT, 0, 74);
-    
-}
-
-void slider_value_rgb(lv_obj_t target){
-    slider_val = lv_slider_create(&target, NULL);
-    lv_obj_set_width(slider_val, 120);
-    lv_obj_align(slider_val, NULL, LV_ALIGN_IN_TOP_LEFT, 26, 106);
-    lv_obj_set_event_cb(slider_val, slider_value_event_cb);
-    lv_slider_set_range(slider_val, 0, 100);
-    
-    /* Create a label below the slider */
-    slider_label_val = lv_label_create(&target, NULL);
-    lv_label_set_text(slider_label_val, "V");
-    lv_obj_set_auto_realign(slider_label_val, true);
-    lv_obj_align(slider_label_val, slider_val, LV_ALIGN_IN_TOP_LEFT, 0, 100);
-
-    
 }
 
 void PickerSelector(lv_obj_t dst,lv_cpicker_color_mode_t new_mode){
@@ -544,7 +563,7 @@ void tabs(){
     lv_tabview_set_anim_time(tabview, 1000);
 
     //--------------------------TAB 1: COLORS-------------------------------------------
-
+    
 
     //--------------------------TAB 2: SETUP-------------------------------------------
     lv_obj_t *l2 = lv_label_create(tab_setup, NULL);
@@ -566,8 +585,8 @@ void tabs(){
     lv_obj_align(label_wheel, NULL, LV_ALIGN_IN_TOP_LEFT, 15, 10);
 
     lv_obj_t  *label_sliders = lv_label_create(color_hsv, NULL);
-    lv_label_set_text(label_sliders, "Sliders");
-    lv_obj_align(label_sliders, NULL, LV_ALIGN_IN_TOP_RIGHT, -15, 10);
+    lv_label_set_text(label_sliders, "Input");
+    lv_obj_align(label_sliders, NULL, LV_ALIGN_IN_TOP_RIGHT, -25, 10);
 
     // cpicker_ghost = color_hsv;
     PickerSelector(*color_hsv,LV_CPICKER_COLOR_MODE_HUE);
@@ -577,25 +596,15 @@ void tabs(){
     spinbox_ink_volume(*color_hsv);
 
     //=========    SLIDER HSV ==================
-    /*
-    slider_hue_rgb(*color_hsv);
-    lv_obj_set_hidden(slider_hue,true);
-    lv_obj_set_hidden(slider_label_hue,true);
-
-    slider_saturation_rgb(*color_hsv);
-    lv_obj_set_hidden(slider_sat,true);
-    lv_obj_set_hidden(slider_label_sat,true); */
-
-    //slider_value_rgb(*color_hsv);
-    //lv_obj_set_hidden(slider_val,true);
     type_values_hsv(*color_hsv);
     for (uint8_t i=0;i<3;i++){
         lv_obj_set_hidden(txt_areas[i],true);
     }
     
+    hsvSample();
+    lv_obj_set_hidden(line1,true);
 
-
-    
+    sliders_cmyk(*color_cmyk);
 
     //---------------------------- ULTIMA CAMADA -----------------------------------
     /* ESSA CAMADA VAI NA SCREEN PRINCIPAL, "FLUTUANDO" SOBRE A TABVIEW. 
@@ -604,7 +613,6 @@ void tabs(){
     //lv_obj_t *bb = lv_label_create(lv_scr_act(), NULL);
     //lv_label_set_text(bb, "Do bit Ao Byte - LVGL");
     //lv_obj_align(bb, NULL, LV_ALIGN_IN_BOTTOM_MID, 0, -10);
-    //typing();
 
     lv_obj_t * btn_logoff = lv_btn_create(lv_scr_act(), NULL);
     lv_obj_align(btn_logoff,NULL,LV_ALIGN_IN_BOTTOM_RIGHT,-5,8);
@@ -615,36 +623,6 @@ void tabs(){
     lv_obj_t *icon_logoff = lv_label_create(btn_logoff, NULL);
     lv_label_set_text(icon_logoff, LV_SYMBOL_POWER);
 
-}
-
-void typing(){
-    const char *msg = "Do bit Ao Byte - LVGL\0";
-    uint8_t sizeStr = 22;
-
-    char buf[22];
-
-    lv_obj_t *bb = lv_label_create(lv_scr_act(), NULL);
-
-    memset(buf,0,sizeStr);
-    for (uint8_t i=0; i<22;i++){
-        if (msg[i] == ' '){
-            delay(700);
-        }
-        else{
-            delay(140);
-        }
-        char buf2[2] = {0,0};
-        String(msg[i]).toCharArray(buf2,msg[i]);
-        pcfSmart.setInvertBit(7);
-        delay(30);
-        pcfSmart.setInvertBit(7);
-        strcat(buf,buf2);
-        lv_label_set_text(bb, buf);
-        lv_obj_align(bb, NULL, LV_ALIGN_IN_BOTTOM_MID, 0, -10);
-        lv_task_handler();
-        
-    }
-    
 }
 
 //-------------------------------------------------------------------------------//
@@ -721,12 +699,6 @@ void setup() {
 
     //Tutorial LVGL - 02
     tabs();
-    //typing();
-
-    hsv testecor;
-    //testecor.h = 309;
-    //testecor.s = 39;
-    //testecor.v = 75;
 
     rgb out_rgb;
     out_rgb.r = 220;
