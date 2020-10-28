@@ -47,6 +47,9 @@ void tabs();
 void hsvSample();
 void colorToSample();
 
+void cmykSample();
+void colorToSampleLineCMYK();
+
 void hsv_plus_minus(lv_obj_t target);
 
 void start_button(lv_obj_t target);
@@ -60,9 +63,16 @@ static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event);
 static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event); //callback do switch do hsl
 static void btn_start_cb(lv_obj_t * obj, lv_event_t event); //callback botão start
 
+//HSV
 static void txtarea_hue_cb(lv_obj_t * obj, lv_event_t event); 
 static void txtarea_sat_cb(lv_obj_t * obj, lv_event_t event);
 static void txtarea_val_cb(lv_obj_t * obj, lv_event_t event);
+
+//CMYK
+static void slider_c_cb(lv_obj_t * obj, lv_event_t event);
+static void slider_m_cb(lv_obj_t * obj, lv_event_t event);
+static void slider_y_cb(lv_obj_t * obj, lv_event_t event);
+static void slider_k_cb(lv_obj_t * obj, lv_event_t event);
 
 static void hsv_plus_minus_cb(lv_obj_t * obj, lv_event_t event);
 
@@ -79,7 +89,8 @@ lv_obj_t * slider_sat;
 lv_obj_t * slider_val;
 
 lv_obj_t * btn_start_mixer;
-lv_obj_t * spinbox;
+lv_obj_t * spinbox_ink_volume_hsv;
+lv_obj_t * spinbox_ink_volume_cmyk;
 lv_obj_t * cpicker;
 
 lv_obj_t *color_cmyk;
@@ -91,6 +102,7 @@ lv_obj_t *txt_areas[3];
 lv_obj_t * btn_plus_minus_hsv;
 
 lv_obj_t * line1;
+lv_obj_t *line_cmyk;
 
 lv_obj_t * slider_label_c;
 lv_obj_t * slider_label_m;
@@ -98,17 +110,92 @@ lv_obj_t * slider_label_y;
 lv_obj_t * slider_label_k;
 
 static lv_style_t style_line;
+static lv_style_t style_line_cmyk;
 
 static const char * hsv_btns[] = {"H", "\n","S", "\n","V",""};
 static const char * hsv_plus_minus_btns[] = {LV_SYMBOL_MINUS,LV_SYMBOL_PLUS,""};
 
+//========================VALORES IMPORTANTES PARA EXECUCAO=================================
 //struct dos valores HSV
 lv_color_hsv_t hsv_values;
+//struct dos valores CMYK - guarda os valores para a execução
+cmyk cmyk_values_struct;
 
-uint32_t spinbox_value  = 0;
+uint32_t spinbox_ink_volume_value  = 0; //volume de tinta
+//===============================================================
+
 uint8_t txt_area_index = 0;
 
 //callbacks
+
+static void slider_c_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        static char buf[4]; /* max 3 bytes for number plus 1 null terminating byte */
+        int sample = lv_slider_get_value(obj);
+        cmyk_values_struct.c = sample > 100 ? 100 : sample;
+        snprintf(buf, 4, "%u", cmyk_values_struct.c);
+        strcat(buf,"%");
+        lv_label_set_text(slider_label_c, buf);
+
+        lv_color_t lvgl_color_format;
+        cmyk_values_struct.c = sample;
+        rgb out_rgb = cmykConverter.CMYKtoRGB(cmyk_values_struct,out_rgb);
+        lvgl_color_format.full = rgb2rgb.RGB24toRGB16(out_rgb.r,out_rgb.g,out_rgb.b);
+        lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, lvgl_color_format);
+    }
+}
+
+static void slider_m_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        static char buf[4]; /* max 3 bytes for number plus 1 null terminating byte */
+        int sample = lv_slider_get_value(obj);
+        cmyk_values_struct.m = sample > 100 ? 100 : sample;
+        snprintf(buf, 4, "%u", cmyk_values_struct.m);
+        strcat(buf,"%");
+        lv_label_set_text(slider_label_m, buf);
+
+        lv_color_t lvgl_color_format;
+        cmyk_values_struct.m = sample;
+        rgb out_rgb = cmykConverter.CMYKtoRGB(cmyk_values_struct,out_rgb);
+        lvgl_color_format.full = rgb2rgb.RGB24toRGB16(out_rgb.r,out_rgb.g,out_rgb.b);
+        lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, lvgl_color_format);
+    }
+}
+
+static void slider_y_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        static char buf[4]; /* max 3 bytes for number plus 1 null terminating byte */
+        int sample = lv_slider_get_value(obj);
+        cmyk_values_struct.y = sample > 100 ? 100 : sample;
+        snprintf(buf, 4, "%u", cmyk_values_struct.y);
+        strcat(buf,"%");
+        lv_label_set_text(slider_label_y, buf);
+
+        lv_color_t lvgl_color_format;
+        cmyk_values_struct.y = sample;
+        rgb out_rgb = cmykConverter.CMYKtoRGB(cmyk_values_struct,out_rgb);
+        lvgl_color_format.full = rgb2rgb.RGB24toRGB16(out_rgb.r,out_rgb.g,out_rgb.b);
+        lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, lvgl_color_format);
+    }
+}
+
+static void slider_k_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        static char buf[4]; /* max 3 bytes for number plus 1 null terminating byte */
+        int sample = lv_slider_get_value(obj);
+        cmyk_values_struct.k = sample > 100 ? 100 : sample;
+        snprintf(buf, 4, "%u", cmyk_values_struct.k);
+        strcat(buf,"%");
+        lv_label_set_text(slider_label_k, buf);
+
+        lv_color_t lvgl_color_format;
+        cmyk_values_struct.k = sample;
+        rgb out_rgb = cmykConverter.CMYKtoRGB(cmyk_values_struct,out_rgb);
+        lvgl_color_format.full = rgb2rgb.RGB24toRGB16(out_rgb.r,out_rgb.g,out_rgb.b);
+        lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, lvgl_color_format);
+    }
+}
+
 /*cb do +/- que trata os textarea hsv*/
 static void hsv_plus_minus_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED){
@@ -218,29 +305,54 @@ static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event)
 }
 
 //spinbox
-static void lv_spinbox_increment_event_cb(lv_obj_t * btn, lv_event_t e)
+static void lv_spinbox_increment_event_hsv_cb(lv_obj_t * btn, lv_event_t e)
 {
     if(e == LV_EVENT_SHORT_CLICKED || e == LV_EVENT_LONG_PRESSED_REPEAT) {
-        lv_spinbox_increment(spinbox);
-        spinbox_value = spinbox_value <500 ? spinbox_value+1 : spinbox_value;
+        lv_spinbox_increment(spinbox_ink_volume_hsv);
+        spinbox_ink_volume_value = spinbox_ink_volume_value <500 ? spinbox_ink_volume_value+1 : spinbox_ink_volume_value;
         //int32_t value = lv_spinbox_get_value(spinbox)/10;
-        lv_spinbox_set_value(spinbox,spinbox_value*10);
+        lv_spinbox_set_value(spinbox_ink_volume_hsv,spinbox_ink_volume_value*10);
         Serial.println("spin value: ");
-        Serial.println(spinbox_value);
+        Serial.println(spinbox_ink_volume_value);
     }
 }
 
-static void lv_spinbox_decrement_event_cb(lv_obj_t * btn, lv_event_t e)
+static void lv_spinbox_decrement_event_hsv_cb(lv_obj_t * btn, lv_event_t e)
 {
     if(e == LV_EVENT_SHORT_CLICKED || e == LV_EVENT_LONG_PRESSED_REPEAT) {
-        lv_spinbox_decrement(spinbox);
+        lv_spinbox_decrement(spinbox_ink_volume_hsv);
         //int32_t value = lv_spinbox_get_value(spinbox)/10;
-        spinbox_value = spinbox_value >0 ? spinbox_value-1 : spinbox_value;
-        lv_spinbox_set_value(spinbox,spinbox_value*10);
+        spinbox_ink_volume_value = spinbox_ink_volume_value >0 ? spinbox_ink_volume_value-1 : spinbox_ink_volume_value;
+        lv_spinbox_set_value(spinbox_ink_volume_hsv,spinbox_ink_volume_value*10);
         Serial.println("spin value: ");
-        Serial.println(spinbox_value);
+        Serial.println(spinbox_ink_volume_value);
     }
 }
+
+static void lv_spinbox_increment_event_cmyk_cb(lv_obj_t * btn, lv_event_t e)
+{
+    if(e == LV_EVENT_SHORT_CLICKED || e == LV_EVENT_LONG_PRESSED_REPEAT) {
+        lv_spinbox_increment(spinbox_ink_volume_cmyk);
+        spinbox_ink_volume_value = spinbox_ink_volume_value <500 ? spinbox_ink_volume_value+1 : spinbox_ink_volume_value;
+        //int32_t value = lv_spinbox_get_value(spinbox)/10;
+        lv_spinbox_set_value(spinbox_ink_volume_cmyk,spinbox_ink_volume_value*10);
+        Serial.println("spin value: ");
+        Serial.println(spinbox_ink_volume_value);
+    }
+}
+
+static void lv_spinbox_decrement_event_cmyk_cb(lv_obj_t * btn, lv_event_t e)
+{
+    if(e == LV_EVENT_SHORT_CLICKED || e == LV_EVENT_LONG_PRESSED_REPEAT) {
+        lv_spinbox_decrement(spinbox_ink_volume_cmyk);
+        //int32_t value = lv_spinbox_get_value(spinbox)/10;
+        spinbox_ink_volume_value = spinbox_ink_volume_value >0 ? spinbox_ink_volume_value-1 : spinbox_ink_volume_value;
+        lv_spinbox_set_value(spinbox_ink_volume_cmyk,spinbox_ink_volume_value*10);
+        Serial.println("spin value: ");
+        Serial.println(spinbox_ink_volume_value);
+    }
+}
+
 
 void cpicker_cb(lv_obj_t * obj, lv_event_t event){
     if ( LV_EVENT_CLICKED == event){
@@ -330,6 +442,11 @@ static void btn_start_cb(lv_obj_t * obj, lv_event_t event){
         Serial.println(hsv_values.s);
         Serial.println(hsv_values.v);
 
+        Serial.println(cmyk_values_struct.c);
+        Serial.println(cmyk_values_struct.m);
+        Serial.println(cmyk_values_struct.y);
+        Serial.println(cmyk_values_struct.k);
+
     }
     else if(event == LV_EVENT_VALUE_CHANGED) {
         printf("Toggled\n");
@@ -347,64 +464,67 @@ void colorToSample(){
             
             lvgl_color_format.full = rgb2rgb.RGB24toRGB16(out_rgb.r,out_rgb.g,out_rgb.b);
             lv_style_set_line_color(&style_line, LV_STATE_DEFAULT, lvgl_color_format);
-            Serial.println("sample");
-            Serial.println(sizeof(uint16_t));
-            Serial.println(sizeof(double));
+}
+
+void colorToSampleLineCMYK(){
+            rgb out_rgb;
+
+            out_rgb  =  cmykConverter.CMYKtoRGB(cmyk_values_struct,out_rgb);
+            lv_color_t lvgl_color_format;
+            
+            lvgl_color_format.full = rgb2rgb.RGB24toRGB16(out_rgb.r,out_rgb.g,out_rgb.b);
+            lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, lvgl_color_format);
 }
 
 void sliders_cmyk(lv_obj_t target){
 
-    lv_obj_t * slider = lv_slider_create(&target, NULL);
-    lv_obj_set_width(slider, 130);
-    lv_obj_align(slider, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 10);
-    //lv_obj_set_event_cb(slider, slider_event_cb);
-    lv_slider_set_range(slider, 0, 100);
+    lv_obj_t * slider_cmyk_c = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider_cmyk_c, 130);
+    lv_obj_align(slider_cmyk_c, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 10);
+    lv_obj_set_event_cb(slider_cmyk_c, slider_c_cb);
+    lv_slider_set_range(slider_cmyk_c, 0, 110);
 
     slider_label_c = lv_label_create(&target, NULL);
     lv_label_set_text(slider_label_c, "0%");
     lv_obj_set_auto_realign(slider_label_c, true);
-    lv_obj_align(slider_label_c, slider, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    lv_obj_align(slider_label_c, slider_cmyk_c, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
-
-    lv_obj_t * slider2 = lv_slider_create(&target, NULL);
-    lv_obj_set_width(slider2, 130);
-    lv_obj_align(slider2, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 50);
-    //lv_obj_set_event_cb(slider, slider_event_cb);
-    lv_slider_set_range(slider2, 0, 100);
+    lv_obj_t * slider_cmyk_m = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider_cmyk_m, 130);
+    lv_obj_align(slider_cmyk_m, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 50);
+    lv_obj_set_event_cb(slider_cmyk_m, slider_m_cb);
+    lv_slider_set_range(slider_cmyk_m, 0, 110);
 
     slider_label_m = lv_label_create(&target, NULL);
     lv_label_set_text(slider_label_m, "0%");
     lv_obj_set_auto_realign(slider_label_m, true);
-    lv_obj_align(slider_label_m, slider2, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
-    
+    lv_obj_align(slider_label_m, slider_cmyk_m, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
-    lv_obj_t * slider3 = lv_slider_create(&target, NULL);
-    lv_obj_set_width(slider3, 130);
-    lv_obj_align(slider3, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 90);
-    //lv_obj_set_event_cb(slider, slider_event_cb);
-    lv_slider_set_range(slider3, 0, 100);
+    lv_obj_t * slider_cmyk_y = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider_cmyk_y, 130);
+    lv_obj_align(slider_cmyk_y, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 90);
+    lv_obj_set_event_cb(slider_cmyk_y, slider_y_cb);
+    lv_slider_set_range(slider_cmyk_y, 0, 110);
 
     slider_label_y = lv_label_create(&target, NULL);
     lv_label_set_text(slider_label_y, "0%");
     lv_obj_set_auto_realign(slider_label_y, true);
-    lv_obj_align(slider_label_y, slider3, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
-    
+    lv_obj_align(slider_label_y, slider_cmyk_y, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
-    lv_obj_t * slider4 = lv_slider_create(&target, NULL);
-    lv_obj_set_width(slider4, 130);
-    lv_obj_align(slider4, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 130);
-    //lv_obj_set_event_cb(slider, slider_event_cb);
-    lv_slider_set_range(slider4, 0, 100);
+    lv_obj_t * slider_cmyk_k = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider_cmyk_k, 130);
+    lv_obj_align(slider_cmyk_k, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 130);
+    lv_obj_set_event_cb(slider_cmyk_k, slider_k_cb);
+    lv_slider_set_range(slider_cmyk_k, 0, 110);
 
     slider_label_k = lv_label_create(&target, NULL);
     lv_label_set_text(slider_label_k, "0%");
     lv_obj_set_auto_realign(slider_label_k, true);
-    lv_obj_align(slider_label_k, slider4, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    lv_obj_align(slider_label_k, slider_cmyk_k, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
       
 }
 
 void hsvSample(){
-    //TODO: copiar para o HSV e criar o evento pra trocar a cor
     static lv_point_t line_points[] = { {0, 60}, {80, 60}};
     lv_style_init(&style_line);
     lv_style_set_line_width(&style_line, LV_STATE_DEFAULT, 60);
@@ -417,6 +537,21 @@ void hsvSample(){
     lv_line_set_points(line1, line_points, 2);     /*Set the points*/
     lv_obj_add_style(line1, LV_LINE_PART_MAIN, &style_line);     /*Set the points*/
     lv_obj_align(line1, NULL, LV_ALIGN_IN_TOP_LEFT, 116, 60);
+}
+
+void cmykSample(){
+    static lv_point_t line_points[] = { {0, 0}, {0, 130}};
+    lv_style_init(&style_line_cmyk);
+    lv_style_set_line_width(&style_line_cmyk, LV_STATE_DEFAULT, 5);
+    lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, LV_COLOR_WHITE);
+    lv_style_set_line_rounded(&style_line_cmyk, LV_STATE_DEFAULT, false);
+
+    /*Create a line and apply the new style*/
+    
+    line_cmyk = lv_line_create(color_cmyk, NULL);
+    lv_line_set_points(line_cmyk, line_points, 2);     /*Set the points*/
+    lv_obj_add_style(line_cmyk, LV_LINE_PART_MAIN, &style_line_cmyk);     /*Set the points*/
+    lv_obj_align(line_cmyk, NULL, LV_ALIGN_IN_TOP_RIGHT, -15, 10);
 }
 
 void hsv_plus_minus(lv_obj_t target){
@@ -479,29 +614,55 @@ void PickerSelector(lv_obj_t dst,lv_cpicker_color_mode_t new_mode){
     lv_obj_align(cpicker, NULL, LV_ALIGN_CENTER, 0, -5);
 }
 
-void spinbox_ink_volume(lv_obj_t target){
-    spinbox = lv_spinbox_create(&target, NULL);
-    lv_spinbox_set_range(spinbox, +0, 500); //como step nao tá dando 1, dividir por 10 no cb
-    lv_spinbox_set_digit_format(spinbox, 4, 3);
-    lv_spinbox_set_step(spinbox,10);
-    lv_spinbox_step_prev(spinbox);
-    lv_obj_set_width(spinbox, 120);
-    lv_obj_align(spinbox, NULL, LV_ALIGN_IN_BOTTOM_LEFT, 5, -13);
-    lv_spinbox_set_padding_left(spinbox,3);
-    lv_obj_set_style_local_margin_left(spinbox, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 4);
-    lv_obj_set_style_local_margin_right(spinbox, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 0);
+void spinbox_ink_volumeHSV(lv_obj_t target){
+    spinbox_ink_volume_hsv = lv_spinbox_create(&target, NULL);
+    lv_spinbox_set_range(spinbox_ink_volume_hsv, +0, 500); //como step nao tá dando 1, dividir por 10 no cb
+    lv_spinbox_set_digit_format(spinbox_ink_volume_hsv, 4, 3);
+    lv_spinbox_set_step(spinbox_ink_volume_hsv,10);
+    lv_spinbox_step_prev(spinbox_ink_volume_hsv);
+    lv_obj_set_width(spinbox_ink_volume_hsv, 120);
+    lv_obj_align(spinbox_ink_volume_hsv, NULL, LV_ALIGN_IN_BOTTOM_LEFT, 5, -13);
+    lv_spinbox_set_padding_left(spinbox_ink_volume_hsv,3);
+    lv_obj_set_style_local_margin_left(spinbox_ink_volume_hsv, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 4);
+    lv_obj_set_style_local_margin_right(spinbox_ink_volume_hsv, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 0);
 
-    lv_coord_t h = lv_obj_get_height(spinbox);
+    lv_coord_t h = lv_obj_get_height(spinbox_ink_volume_hsv);
     lv_obj_t * btn = lv_btn_create(&target, NULL);
     lv_obj_set_size(btn, h, h);
-    lv_obj_align(btn, spinbox, LV_ALIGN_IN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_align(btn, spinbox_ink_volume_hsv, LV_ALIGN_IN_BOTTOM_RIGHT, 0, 0);
     lv_theme_apply(btn, LV_THEME_SPINBOX_BTN);
     lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_PLUS);
-    lv_obj_set_event_cb(btn, lv_spinbox_increment_event_cb);
+    lv_obj_set_event_cb(btn, lv_spinbox_increment_event_hsv_cb);
 
     btn = lv_btn_create(&target, btn);
-    lv_obj_align(btn, spinbox, LV_ALIGN_IN_BOTTOM_LEFT, -5, 0);
-    lv_obj_set_event_cb(btn, lv_spinbox_decrement_event_cb);
+    lv_obj_align(btn, spinbox_ink_volume_hsv, LV_ALIGN_IN_BOTTOM_LEFT, -5, 0);
+    lv_obj_set_event_cb(btn, lv_spinbox_decrement_event_hsv_cb);
+    lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_MINUS);
+}
+
+void spinbox_ink_volumeCMYK(lv_obj_t target){
+    spinbox_ink_volume_cmyk = lv_spinbox_create(&target, NULL);
+    lv_spinbox_set_range(spinbox_ink_volume_cmyk, +0, 500); //como step nao tá dando 1, dividir por 10 no cb
+    lv_spinbox_set_digit_format(spinbox_ink_volume_cmyk, 4, 3);
+    lv_spinbox_set_step(spinbox_ink_volume_cmyk,10);
+    lv_spinbox_step_prev(spinbox_ink_volume_cmyk);
+    lv_obj_set_width(spinbox_ink_volume_cmyk, 120);
+    lv_obj_align(spinbox_ink_volume_cmyk, NULL, LV_ALIGN_IN_BOTTOM_LEFT, 5, -13);
+    lv_spinbox_set_padding_left(spinbox_ink_volume_cmyk,3);
+    lv_obj_set_style_local_margin_left(spinbox_ink_volume_cmyk, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 4);
+    lv_obj_set_style_local_margin_right(spinbox_ink_volume_cmyk, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 0);
+
+    lv_coord_t h = lv_obj_get_height(spinbox_ink_volume_cmyk);
+    lv_obj_t * btn = lv_btn_create(&target, NULL);
+    lv_obj_set_size(btn, h, h);
+    lv_obj_align(btn, spinbox_ink_volume_cmyk, LV_ALIGN_IN_BOTTOM_RIGHT, 0, 0);
+    lv_theme_apply(btn, LV_THEME_SPINBOX_BTN);
+    lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_PLUS);
+    lv_obj_set_event_cb(btn, lv_spinbox_increment_event_cmyk_cb);
+
+    btn = lv_btn_create(&target, btn);
+    lv_obj_align(btn, spinbox_ink_volume_cmyk, LV_ALIGN_IN_BOTTOM_LEFT, -5, 0);
+    lv_obj_set_event_cb(btn, lv_spinbox_decrement_event_cmyk_cb);
     lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_MINUS);
 }
 
@@ -593,7 +754,7 @@ void tabs(){
 
     hsv_cpicker_choice(*color_hsv);
     start_button(*color_hsv);
-    spinbox_ink_volume(*color_hsv);
+    spinbox_ink_volumeHSV(*color_hsv);
 
     //=========    SLIDER HSV ==================
     type_values_hsv(*color_hsv);
@@ -604,7 +765,11 @@ void tabs(){
     hsvSample();
     lv_obj_set_hidden(line1,true);
 
+    //CMYK
     sliders_cmyk(*color_cmyk);
+    start_button(*color_cmyk);
+    spinbox_ink_volumeCMYK(*color_cmyk);
+    cmykSample();
 
     //---------------------------- ULTIMA CAMADA -----------------------------------
     /* ESSA CAMADA VAI NA SCREEN PRINCIPAL, "FLUTUANDO" SOBRE A TABVIEW. 
@@ -661,6 +826,12 @@ void setup() {
     hsv_values.h = 0;
     hsv_values.s = 100;
     hsv_values.v = 100;
+
+    cmyk_values_struct.c = 0;
+    cmyk_values_struct.m = 0;
+    cmyk_values_struct.y = 0;
+    cmyk_values_struct.k = 0;
+
     Serial.begin(115200);
 
     if (!pcfSmart.startI2C(21,22)){
