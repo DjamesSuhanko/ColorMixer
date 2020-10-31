@@ -1,3 +1,11 @@
+/*
+Author:  Djames Suhanko <djames.suhanko@gmail.com>
+Website: https://www.dobitaobyte.com.br
+Youtube: youtube.com/dobitaobytebrasil
+
+You are free to use this code, just preserve author reference.
+*/
+
 #include <Arduino.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
@@ -5,6 +13,8 @@
 #include <WiFi.h>
 #include <math.h>
 #include "EasyColor.h"
+#include "fileHandler.h"
+#include <string.h>
 
 #define DISPLAY_WIDTH  240
 #define display_HEIGHT 320
@@ -50,17 +60,27 @@ void colorToSample();
 void cmykSample();
 void colorToSampleLineCMYK();
 
+void rgbSample();
+void colorToSampleLineCMYK();
+
+void list_of_patterns();
+
 void hsv_plus_minus(lv_obj_t target);
 
 void start_button(lv_obj_t target);
 void spinbox_ink_volume(lv_obj_t target);
+void spinbox_ink_volumeRGB(lv_obj_t target);
+
+void mtx_load_color(lv_obj_t  target);
 
 void type_values_hsv(lv_obj_t target);
 
 void sliders_cmyk(lv_obj_t target);
 
 static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event);
-static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event); //callback do switch do hsl
+static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event);
+
+static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event); //callback do switch do hsv
 static void btn_start_cb(lv_obj_t * obj, lv_event_t event); //callback botão start
 
 //HSV
@@ -74,28 +94,39 @@ static void slider_m_cb(lv_obj_t * obj, lv_event_t event);
 static void slider_y_cb(lv_obj_t * obj, lv_event_t event);
 static void slider_k_cb(lv_obj_t * obj, lv_event_t event);
 
+//RGB
+static void slider_red_cb(lv_obj_t * obj, lv_event_t event);
+static void slider_green_cb(lv_obj_t * obj, lv_event_t event);
+static void slider_blue_cb(lv_obj_t * obj, lv_event_t event);
+
 static void hsv_plus_minus_cb(lv_obj_t * obj, lv_event_t event);
 
 void cpicker_cb(lv_obj_t * obj, lv_event_t event);
 
+//Mudando de aba, realimenta o spinbox
+static void tab_feeding_spinbox_cb(lv_obj_t *obj, lv_event_t event);
+
 lv_obj_t * hsv_matrix_button;
+lv_obj_t * load_color_mtx_btn;
 
 lv_obj_t * slider_label_sat;
 lv_obj_t * slider_label_hue;
 lv_obj_t * slider_label_val;
 
-lv_obj_t * slider_hue;
-lv_obj_t * slider_sat;
-lv_obj_t * slider_val;
+lv_obj_t * slider_label_red;
+lv_obj_t * slider_label_green;
+lv_obj_t * slider_label_blue;
 
 lv_obj_t * btn_start_mixer;
 lv_obj_t * spinbox_ink_volume_hsv;
 lv_obj_t * spinbox_ink_volume_cmyk;
+lv_obj_t * spinbox_ink_volume_rgb;
+lv_obj_t * spinbox_ink_volume_load;
 lv_obj_t * cpicker;
 
 lv_obj_t *color_cmyk;
 lv_obj_t *color_rgb;
-lv_obj_t *color_hsl;
+lv_obj_t *color_load;
 lv_obj_t *color_hsv;
 
 lv_obj_t *txt_areas[3];
@@ -103,16 +134,27 @@ lv_obj_t * btn_plus_minus_hsv;
 
 lv_obj_t * line1;
 lv_obj_t *line_cmyk;
+lv_obj_t *line_rgb;
 
 lv_obj_t * slider_label_c;
 lv_obj_t * slider_label_m;
 lv_obj_t * slider_label_y;
 lv_obj_t * slider_label_k;
 
+lv_obj_t * roller_patterns;
+
 static lv_style_t style_line;
 static lv_style_t style_line_cmyk;
+static lv_style_t style_line_rgb;
 
-static const char * hsv_btns[] = {"H", "\n","S", "\n","V",""};
+static const char * hsv_btns[]  = {"H", "\n","S", "\n","V",""};
+static const char * load_btns[] = {LV_SYMBOL_UP,
+                                 LV_SYMBOL_DOWN,
+                                 LV_SYMBOL_FILE,
+                                  LV_SYMBOL_CUT,
+                                  LV_SYMBOL_DOWNLOAD,
+                                            ""};
+
 static const char * hsv_plus_minus_btns[] = {LV_SYMBOL_MINUS,LV_SYMBOL_PLUS,""};
 
 //========================VALORES IMPORTANTES PARA EXECUCAO=================================
@@ -120,14 +162,90 @@ static const char * hsv_plus_minus_btns[] = {LV_SYMBOL_MINUS,LV_SYMBOL_PLUS,""};
 lv_color_hsv_t hsv_values;
 //struct dos valores CMYK - guarda os valores para a execução
 cmyk cmyk_values_struct;
+//valor rgb nos sliders do rgb
+rgb rgb_from_sliders;
 
 uint32_t spinbox_ink_volume_value  = 0; //volume de tinta
 //===============================================================
 
 uint8_t txt_area_index = 0;
+uint8_t roller_pos     = 0;
 
 //callbacks
 
+static void tab_feeding_spinbox_cb(lv_obj_t *obj, lv_event_t event){
+    lv_spinbox_set_value(spinbox_ink_volume_hsv,spinbox_ink_volume_value*10);
+    lv_spinbox_set_value(spinbox_ink_volume_cmyk,spinbox_ink_volume_value*10);
+    lv_spinbox_set_value(spinbox_ink_volume_rgb,spinbox_ink_volume_value*10);
+    Serial.println("tab changed");
+    
+}
+
+//RGB
+static void slider_red_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        static char buf[4]; /* max 3 bytes for number plus 1 null terminating byte */
+        int sample = lv_slider_get_value(obj);
+
+        rgb_from_sliders.r = sample > 255 ? 255 : sample;
+        snprintf(buf, 4, "%u", rgb_from_sliders.r);
+        lv_label_set_text(slider_label_red, buf);
+
+        lv_color_t lvgl_color_format;
+        cmyk_values_struct = cmykConverter.RGBtoCMYK(rgb_from_sliders,cmyk_values_struct);
+        lvgl_color_format.full = rgb2rgb.RGB24toRGB16(rgb_from_sliders.r,rgb_from_sliders.g,rgb_from_sliders.b);
+        lv_style_set_line_color(&style_line_rgb, LV_STATE_DEFAULT, lvgl_color_format);
+
+        Serial.println("sliders RGB - R");
+        Serial.println(rgb_from_sliders.r);
+        Serial.println(rgb_from_sliders.g);
+        Serial.println(rgb_from_sliders.b);
+    }
+}
+
+static void slider_green_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        static char buf[4]; /* max 3 bytes for number plus 1 null terminating byte */
+        int sample = lv_slider_get_value(obj);
+
+        rgb_from_sliders.g = sample > 255 ? 255 : sample;
+        snprintf(buf, 4, "%u", rgb_from_sliders.g);
+        lv_label_set_text(slider_label_green, buf);
+
+        lv_color_t lvgl_color_format;
+        cmyk_values_struct = cmykConverter.RGBtoCMYK(rgb_from_sliders,cmyk_values_struct);
+        lvgl_color_format.full = rgb2rgb.RGB24toRGB16(rgb_from_sliders.r,rgb_from_sliders.g,rgb_from_sliders.b);
+        lv_style_set_line_color(&style_line_rgb, LV_STATE_DEFAULT, lvgl_color_format);
+
+        Serial.println("sliders RGB - G");
+        Serial.println(rgb_from_sliders.r);
+        Serial.println(rgb_from_sliders.g);
+        Serial.println(rgb_from_sliders.b);
+    }
+}
+
+static void slider_blue_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        static char buf[4]; /* max 3 bytes for number plus 1 null terminating byte */
+        int sample = lv_slider_get_value(obj);
+
+        rgb_from_sliders.b = sample > 255 ? 255 : sample;
+        snprintf(buf, 4, "%u", rgb_from_sliders.b);
+        lv_label_set_text(slider_label_blue, buf);
+
+        lv_color_t lvgl_color_format;
+        cmyk_values_struct = cmykConverter.RGBtoCMYK(rgb_from_sliders,cmyk_values_struct);
+        lvgl_color_format.full = rgb2rgb.RGB24toRGB16(rgb_from_sliders.r,rgb_from_sliders.g,rgb_from_sliders.b);
+        lv_style_set_line_color(&style_line_rgb, LV_STATE_DEFAULT, lvgl_color_format);
+
+        Serial.println("sliders RGB - B");
+        Serial.println(rgb_from_sliders.r);
+        Serial.println(rgb_from_sliders.g);
+        Serial.println(rgb_from_sliders.b);
+    }
+}
+
+//CMYK
 static void slider_c_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
         static char buf[4]; /* max 3 bytes for number plus 1 null terminating byte */
@@ -304,6 +422,44 @@ static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event)
     }
 }
 
+static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_CLICKED) {
+        const char * txt = lv_btnmatrix_get_active_btn_text(obj);
+
+        if (strcmp(txt,LV_SYMBOL_UP) == 0){
+            uint16_t item = lv_roller_get_selected(roller_patterns);
+
+            char all_items[150];
+            memset(all_items,0,sizeof(all_items));
+            strcpy(all_items,lv_roller_get_options(roller_patterns));
+
+            uint8_t len_items = lv_roller_get_option_cnt(roller_patterns);
+
+            roller_pos = roller_pos == len_items-1 ? 0 : item+1; 
+            lv_roller_set_selected(roller_patterns,(uint16_t) roller_pos,LV_ANIM_ON);    
+        }
+        else if ( strcmp(txt,LV_SYMBOL_DOWN) == 0){
+            uint16_t item = lv_roller_get_selected(roller_patterns);
+            Serial.print("ITEM: ");
+            Serial.println(item);
+            
+            char all_items[150];
+            memset(all_items,0,sizeof(all_items));
+            strcpy(all_items,lv_roller_get_options(roller_patterns));
+
+            uint8_t len_items = lv_roller_get_option_cnt(roller_patterns);
+
+            roller_pos = roller_pos > 0 ? roller_pos-1 : roller_pos; 
+            lv_roller_set_selected(roller_patterns,(uint16_t) roller_pos,LV_ANIM_ON);
+        }
+        else if (strcmp(txt,"V") == 0){
+            hsv_values.h = lv_cpicker_get_hue(cpicker);
+            lv_cpicker_set_hue(cpicker,hsv_values.h);
+            //lv_cpicker_set_hsv(cpicker, hsv_values);
+            lv_cpicker_set_color_mode(cpicker,LV_CPICKER_COLOR_MODE_VALUE);
+        }
+    }
+}
 //spinbox
 static void lv_spinbox_increment_event_hsv_cb(lv_obj_t * btn, lv_event_t e)
 {
@@ -353,6 +509,53 @@ static void lv_spinbox_decrement_event_cmyk_cb(lv_obj_t * btn, lv_event_t e)
     }
 }
 
+static void lv_spinbox_increment_event_rgb_cb(lv_obj_t * btn, lv_event_t e)
+{
+    if(e == LV_EVENT_SHORT_CLICKED || e == LV_EVENT_LONG_PRESSED_REPEAT) {
+        lv_spinbox_increment(spinbox_ink_volume_rgb);
+        spinbox_ink_volume_value = spinbox_ink_volume_value <500 ? spinbox_ink_volume_value+1 : spinbox_ink_volume_value;
+        //int32_t value = lv_spinbox_get_value(spinbox)/10;
+        lv_spinbox_set_value(spinbox_ink_volume_rgb,spinbox_ink_volume_value*10);
+        Serial.println("spin value: ");
+        Serial.println(spinbox_ink_volume_value);
+    }
+}
+
+static void lv_spinbox_decrement_event_rgb_cb(lv_obj_t * btn, lv_event_t e)
+{
+    if(e == LV_EVENT_SHORT_CLICKED || e == LV_EVENT_LONG_PRESSED_REPEAT) {
+        lv_spinbox_decrement(spinbox_ink_volume_rgb);
+        //int32_t value = lv_spinbox_get_value(spinbox)/10;
+        spinbox_ink_volume_value = spinbox_ink_volume_value >0 ? spinbox_ink_volume_value-1 : spinbox_ink_volume_value;
+        lv_spinbox_set_value(spinbox_ink_volume_rgb,spinbox_ink_volume_value*10);
+        Serial.println("spin value: ");
+        Serial.println(spinbox_ink_volume_value);
+    }
+}
+
+static void lv_spinbox_increment_event_load_cb(lv_obj_t * btn, lv_event_t e)
+{
+    if(e == LV_EVENT_SHORT_CLICKED || e == LV_EVENT_LONG_PRESSED_REPEAT) {
+        lv_spinbox_increment(spinbox_ink_volume_load);
+        spinbox_ink_volume_value = spinbox_ink_volume_value <500 ? spinbox_ink_volume_value+1 : spinbox_ink_volume_value;
+        //int32_t value = lv_spinbox_get_value(spinbox)/10;
+        lv_spinbox_set_value(spinbox_ink_volume_load,spinbox_ink_volume_value*10);
+        Serial.println("spin value: ");
+        Serial.println(spinbox_ink_volume_value);
+    }
+}
+
+static void lv_spinbox_decrement_event_load_cb(lv_obj_t * btn, lv_event_t e)
+{
+    if(e == LV_EVENT_SHORT_CLICKED || e == LV_EVENT_LONG_PRESSED_REPEAT) {
+        lv_spinbox_decrement(spinbox_ink_volume_load);
+        //int32_t value = lv_spinbox_get_value(spinbox)/10;
+        spinbox_ink_volume_value = spinbox_ink_volume_value >0 ? spinbox_ink_volume_value-1 : spinbox_ink_volume_value;
+        lv_spinbox_set_value(spinbox_ink_volume_load,spinbox_ink_volume_value*10);
+        Serial.println("spin value: ");
+        Serial.println(spinbox_ink_volume_value);
+    }
+}
 
 void cpicker_cb(lv_obj_t * obj, lv_event_t event){
     if ( LV_EVENT_CLICKED == event){
@@ -453,6 +656,50 @@ static void btn_start_cb(lv_obj_t * obj, lv_event_t event){
     }
 }
 
+
+//=================== FIM CALLBACKS ========================
+static void list_cb(lv_obj_t * obj, lv_event_t event){
+    if (event == LV_EVENT_CLICKED){
+        lv_obj_t * label_target = lv_list_get_btn_label(obj);
+        String txt_label = lv_label_get_text(label_target);
+        
+        Serial.println(txt_label);
+    }
+}
+
+void list_of_patterns(){
+    String result;
+    result = getFilenames(SPIFFS,"/",1);
+    result.replace("/","");
+    result.replace("|","\n");
+
+    char items_to_list[150];
+    result.toCharArray(items_to_list,sizeof(items_to_list));
+    items_to_list[0] = ' ';
+
+    if (result.length() <3) return;
+
+    //Create a roller
+    roller_patterns = lv_roller_create(color_load, NULL);
+    lv_roller_set_options(roller_patterns, items_to_list, LV_ROLLER_MODE_INIFINITE);
+
+    lv_roller_set_fix_width(roller_patterns,154);
+    lv_roller_set_visible_row_count(roller_patterns, 3);
+    lv_obj_align(roller_patterns, NULL, LV_ALIGN_IN_TOP_LEFT, 0, 0);
+
+    //TODO: callback
+/*
+    char *it;
+    it = strtok(items_to_list,"|");
+    
+    while (it != NULL){
+        Serial.println(it);
+        list_ev = lv_list_add_btn(target, NULL, it);
+        lv_obj_set_event_cb(list_ev, list_cb);
+        it = strtok(NULL,"|");     
+    }*/
+}
+
 void colorToSample(){
             rgb out_rgb;
             hsv in_hsv;
@@ -474,6 +721,13 @@ void colorToSampleLineCMYK(){
             
             lvgl_color_format.full = rgb2rgb.RGB24toRGB16(out_rgb.r,out_rgb.g,out_rgb.b);
             lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, lvgl_color_format);
+}
+
+void colorToSampleLineRGB(){
+    lv_color_t lvgl_color_format;
+            
+    lvgl_color_format.full = rgb2rgb.RGB24toRGB16(rgb_from_sliders.r,rgb_from_sliders.g,rgb_from_sliders.b);
+    lv_style_set_line_color(&style_line_rgb, LV_STATE_DEFAULT, lvgl_color_format);
 }
 
 void sliders_cmyk(lv_obj_t target){
@@ -524,6 +778,45 @@ void sliders_cmyk(lv_obj_t target){
       
 }
 
+void sliders_rgb(lv_obj_t target){
+    //RED
+    lv_obj_t * slider_rgb_r = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider_rgb_r, 130);
+    lv_obj_align(slider_rgb_r, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 50);
+    lv_obj_set_event_cb(slider_rgb_r, slider_red_cb);
+    lv_slider_set_range(slider_rgb_r, 0, 270);
+
+    slider_label_red = lv_label_create(&target, NULL);
+    lv_label_set_text(slider_label_red, "0");
+    lv_obj_set_auto_realign(slider_label_red, true);
+    lv_obj_align(slider_label_red, slider_rgb_r, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+
+    //GREEN
+    lv_obj_t * slider_rgb_g = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider_rgb_g, 130);
+    lv_obj_align(slider_rgb_g, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 90);
+    lv_obj_set_event_cb(slider_rgb_g, slider_green_cb);
+    lv_slider_set_range(slider_rgb_g, 0, 270);
+
+    slider_label_green = lv_label_create(&target, NULL);
+    lv_label_set_text(slider_label_green, "0");
+    lv_obj_set_auto_realign(slider_label_green, true);
+    lv_obj_align(slider_label_green, slider_rgb_g, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+
+    //BLUE
+    lv_obj_t * slider_rgb_b = lv_slider_create(&target, NULL);
+    lv_obj_set_width(slider_rgb_b, 130);
+    lv_obj_align(slider_rgb_b, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 130);
+    lv_obj_set_event_cb(slider_rgb_b, slider_blue_cb);
+    lv_slider_set_range(slider_rgb_b, 0, 270);
+
+    slider_label_blue = lv_label_create(&target, NULL);
+    lv_label_set_text(slider_label_blue, "0");
+    lv_obj_set_auto_realign(slider_label_blue, true);
+    lv_obj_align(slider_label_blue, slider_rgb_b, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+      
+}
+
 void hsvSample(){
     static lv_point_t line_points[] = { {0, 60}, {80, 60}};
     lv_style_init(&style_line);
@@ -552,6 +845,21 @@ void cmykSample(){
     lv_line_set_points(line_cmyk, line_points, 2);     /*Set the points*/
     lv_obj_add_style(line_cmyk, LV_LINE_PART_MAIN, &style_line_cmyk);     /*Set the points*/
     lv_obj_align(line_cmyk, NULL, LV_ALIGN_IN_TOP_RIGHT, -15, 10);
+}
+
+void rgbSample(){
+    static lv_point_t line_points[] = { {0, 0}, {0, 130}};
+    lv_style_init(&style_line_rgb);
+    lv_style_set_line_width(&style_line_rgb, LV_STATE_DEFAULT, 5);
+    lv_style_set_line_color(&style_line_rgb, LV_STATE_DEFAULT, LV_COLOR_WHITE);
+    lv_style_set_line_rounded(&style_line_rgb, LV_STATE_DEFAULT, false);
+
+    /*Create a line and apply the new style*/
+    
+    line_rgb = lv_line_create(color_rgb, NULL);
+    lv_line_set_points(line_rgb, line_points, 2);     /*Set the points*/
+    lv_obj_add_style(line_rgb, LV_LINE_PART_MAIN, &style_line_rgb);     /*Set the points*/
+    lv_obj_align(line_rgb, NULL, LV_ALIGN_IN_TOP_RIGHT, -15, 10);
 }
 
 void hsv_plus_minus(lv_obj_t target){
@@ -597,6 +905,22 @@ void hsv_cpicker_choice(lv_obj_t  dst){
     lv_btnmatrix_set_btn_ctrl_all(hsv_matrix_button, LV_BTNMATRIX_CTRL_CHECKABLE);
     lv_obj_set_event_cb(hsv_matrix_button, hsv_matrix_button_cb);
 
+}
+
+void mtx_load_color(lv_obj_t  target){
+    load_color_mtx_btn = lv_btnmatrix_create(&target, NULL);
+    lv_btnmatrix_set_map(load_color_mtx_btn, load_btns);
+
+    lv_obj_align(load_color_mtx_btn, &target, LV_ALIGN_IN_BOTTOM_LEFT, 0, 36);
+
+    lv_obj_set_height(load_color_mtx_btn,40);
+    lv_obj_set_width(load_color_mtx_btn,204);
+
+    lv_btnmatrix_set_one_check(load_color_mtx_btn, true);
+    //lv_btnmatrix_set_focused_btn(load_color_mtx_btn,0);
+    
+    lv_btnmatrix_set_btn_ctrl_all(load_color_mtx_btn, LV_BTNMATRIX_CTRL_CHECKABLE);
+    lv_obj_set_event_cb(load_color_mtx_btn, load_matrix_button_cb);
 }
 
 void PickerSelector(lv_obj_t dst,lv_cpicker_color_mode_t new_mode){
@@ -666,6 +990,58 @@ void spinbox_ink_volumeCMYK(lv_obj_t target){
     lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_MINUS);
 }
 
+//TODO: callbacks faltando
+void spinbox_ink_volumeRGB(lv_obj_t target){
+    spinbox_ink_volume_rgb = lv_spinbox_create(&target, NULL);
+    lv_spinbox_set_range(spinbox_ink_volume_rgb, +0, 500);
+    lv_spinbox_set_digit_format(spinbox_ink_volume_rgb, 4, 3);
+    lv_spinbox_set_step(spinbox_ink_volume_rgb,10);
+    lv_spinbox_step_prev(spinbox_ink_volume_rgb);
+    lv_obj_set_width(spinbox_ink_volume_rgb, 120);
+    lv_obj_align(spinbox_ink_volume_rgb, NULL, LV_ALIGN_IN_BOTTOM_LEFT, 5, -13);
+    lv_spinbox_set_padding_left(spinbox_ink_volume_rgb,3);
+    lv_obj_set_style_local_margin_left(spinbox_ink_volume_rgb, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 4);
+    lv_obj_set_style_local_margin_right(spinbox_ink_volume_rgb, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 0);
+
+    lv_coord_t h = lv_obj_get_height(spinbox_ink_volume_rgb);
+    lv_obj_t * btn = lv_btn_create(&target, NULL);
+    lv_obj_set_size(btn, h, h);
+    lv_obj_align(btn, spinbox_ink_volume_rgb, LV_ALIGN_IN_BOTTOM_RIGHT, 0, 0);
+    lv_theme_apply(btn, LV_THEME_SPINBOX_BTN);
+    lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_PLUS);
+    lv_obj_set_event_cb(btn, lv_spinbox_increment_event_rgb_cb);
+
+    btn = lv_btn_create(&target, btn);
+    lv_obj_align(btn, spinbox_ink_volume_rgb, LV_ALIGN_IN_BOTTOM_LEFT, -5, 0);
+    lv_obj_set_event_cb(btn, lv_spinbox_decrement_event_rgb_cb);
+    lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_MINUS);
+}
+void spinbox_ink_volumeLoad(lv_obj_t target){
+    spinbox_ink_volume_load = lv_spinbox_create(&target, NULL);
+    lv_spinbox_set_range(spinbox_ink_volume_load, +0, 500);
+    lv_spinbox_set_digit_format(spinbox_ink_volume_load, 4, 3);
+    lv_spinbox_set_step(spinbox_ink_volume_load,10);
+    lv_spinbox_step_prev(spinbox_ink_volume_load);
+    lv_obj_set_width(spinbox_ink_volume_load, 120);
+    lv_obj_align(spinbox_ink_volume_load, NULL, LV_ALIGN_IN_BOTTOM_LEFT, 5, -13);
+    lv_spinbox_set_padding_left(spinbox_ink_volume_load,3);
+    lv_obj_set_style_local_margin_left(spinbox_ink_volume_load, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 4);
+    lv_obj_set_style_local_margin_right(spinbox_ink_volume_load, LV_SPINBOX_PART_BG, LV_STATE_DEFAULT, 0);
+
+    lv_coord_t h = lv_obj_get_height(spinbox_ink_volume_load);
+    lv_obj_t * btn = lv_btn_create(&target, NULL);
+    lv_obj_set_size(btn, h, h);
+    lv_obj_align(btn, spinbox_ink_volume_load, LV_ALIGN_IN_BOTTOM_RIGHT, 0, 0);
+    lv_theme_apply(btn, LV_THEME_SPINBOX_BTN);
+    lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_PLUS);
+    lv_obj_set_event_cb(btn, lv_spinbox_increment_event_load_cb);
+
+    btn = lv_btn_create(&target, btn);
+    lv_obj_align(btn, spinbox_ink_volume_load, LV_ALIGN_IN_BOTTOM_LEFT, -5, 0);
+    lv_obj_set_event_cb(btn, lv_spinbox_decrement_event_load_cb);
+    lv_obj_set_style_local_value_str(btn, LV_BTN_PART_MAIN, LV_STATE_DEFAULT, LV_SYMBOL_MINUS);
+}
+
 //textarea HSV
 /*
 enviar sinal do id selecionado, cada qual com seu cb
@@ -714,10 +1090,12 @@ void tabs(){
     //tabs secundárias
     color_cmyk = lv_tabview_add_tab(tabview_color, "CMYK");
     color_rgb  = lv_tabview_add_tab(tabview_color, "RGB");
-    color_hsl  = lv_tabview_add_tab(tabview_color, "HSL");
     color_hsv  = lv_tabview_add_tab(tabview_color, "HSV");
+    color_load = lv_tabview_add_tab(tabview_color, "Save");
 
     lv_tabview_set_btns_pos(tabview_color, LV_TABVIEW_TAB_POS_BOTTOM);
+
+    //lv_obj_set_event_cb(tabview, tab_feeding_spinbox_cb);
 
 
     /* UMA ANIMAÇÃO SIMPLES (OPCIOINAL)*/
@@ -770,6 +1148,24 @@ void tabs(){
     start_button(*color_cmyk);
     spinbox_ink_volumeCMYK(*color_cmyk);
     cmykSample();
+
+    //RGB
+    sliders_rgb(*color_rgb);
+    start_button(*color_rgb);
+    spinbox_ink_volumeRGB(*color_rgb);
+    rgbSample();
+
+    //writeFile(SPIFFS,"/azul","90,20,0,4");
+    //writeFile(SPIFFS,"/verde","90,20,0,4");
+    //writeFile(SPIFFS,"/amarelo","90,20,0,4");
+    //deleteFile(SPIFFS,"/azul_banana");
+    //deleteFile(SPIFFS,"/verde_alicate");
+    //deleteFile(SPIFFS,"/amarelo_oceano");
+
+    start_button(*color_load);
+    spinbox_ink_volumeLoad(*color_load);
+    mtx_load_color(*color_load);
+    list_of_patterns();
 
     //---------------------------- ULTIMA CAMADA -----------------------------------
     /* ESSA CAMADA VAI NA SCREEN PRINCIPAL, "FLUTUANDO" SOBRE A TABVIEW. 
@@ -833,6 +1229,11 @@ void setup() {
     cmyk_values_struct.k = 0;
 
     Serial.begin(115200);
+
+    if(!SPIFFS.begin(true)){
+        Serial.println("SPIFFS Mount Failed");
+        return;
+    }
 
     if (!pcfSmart.startI2C(21,22)){
         Serial.println("Not started. Check pin and address.");
