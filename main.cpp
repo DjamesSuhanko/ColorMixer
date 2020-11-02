@@ -103,6 +103,8 @@ static void hsv_plus_minus_cb(lv_obj_t * obj, lv_event_t event);
 
 void cpicker_cb(lv_obj_t * obj, lv_event_t event);
 
+void exclude_file_cb(lv_obj_t * obj, lv_event_t event);
+
 //Mudando de aba, realimenta o spinbox
 static void tab_feeding_spinbox_cb(lv_obj_t *obj, lv_event_t event);
 
@@ -116,6 +118,11 @@ lv_obj_t * slider_label_val;
 lv_obj_t * slider_label_red;
 lv_obj_t * slider_label_green;
 lv_obj_t * slider_label_blue;
+
+lv_obj_t * slider_cmyk_c;
+lv_obj_t * slider_cmyk_m;
+lv_obj_t * slider_cmyk_y;
+lv_obj_t * slider_cmyk_k;
 
 lv_obj_t * btn_start_mixer;
 lv_obj_t * spinbox_ink_volume_hsv;
@@ -135,6 +142,7 @@ lv_obj_t * btn_plus_minus_hsv;
 lv_obj_t * line1;
 lv_obj_t *line_cmyk;
 lv_obj_t *line_rgb;
+lv_obj_t *line_load;
 
 lv_obj_t * slider_label_c;
 lv_obj_t * slider_label_m;
@@ -143,9 +151,14 @@ lv_obj_t * slider_label_k;
 
 lv_obj_t * roller_patterns;
 
+lv_obj_t *tabview;
+
+lv_obj_t * msgBoxDel;
+
 static lv_style_t style_line;
 static lv_style_t style_line_cmyk;
 static lv_style_t style_line_rgb;
+static lv_style_t style_line_load;
 
 static const char * hsv_btns[]  = {"H", "\n","S", "\n","V",""};
 static const char * load_btns[] = {LV_SYMBOL_UP,
@@ -170,16 +183,31 @@ uint32_t spinbox_ink_volume_value  = 0; //volume de tinta
 
 uint8_t txt_area_index = 0;
 uint8_t roller_pos     = 0;
+bool list_created      = false;
+char full_msg[4]; //arquivo a excluir
 
 //callbacks
 
-static void tab_feeding_spinbox_cb(lv_obj_t *obj, lv_event_t event){
+//excluir arquivo
+void exclude_file_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        if (strcmp(lv_msgbox_get_active_btn_text(obj),"Yes") == 0){
+            deleteFile(SPIFFS,full_msg);
+            lv_obj_del(msgBoxDel);
+            lv_obj_del(roller_patterns);
+            list_of_patterns();
+        }
+        else if (strcmp(lv_msgbox_get_active_btn_text(obj),"Cancel") == 0)
+        lv_obj_del(msgBoxDel);
+    }
+}
+/*static void tab_feeding_spinbox_cb(lv_obj_t *obj, lv_event_t event){
     lv_spinbox_set_value(spinbox_ink_volume_hsv,spinbox_ink_volume_value*10);
     lv_spinbox_set_value(spinbox_ink_volume_cmyk,spinbox_ink_volume_value*10);
     lv_spinbox_set_value(spinbox_ink_volume_rgb,spinbox_ink_volume_value*10);
     Serial.println("tab changed");
     
-}
+}*/
 
 //RGB
 static void slider_red_cb(lv_obj_t * obj, lv_event_t event){
@@ -424,9 +452,10 @@ static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event)
 
 static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_CLICKED) {
+        char buf[4];
         const char * txt = lv_btnmatrix_get_active_btn_text(obj);
-
-        if (strcmp(txt,LV_SYMBOL_UP) == 0){
+        //PRA CIMA (é down mesmo)
+        if (strcmp(txt,LV_SYMBOL_DOWN) == 0){
             uint16_t item = lv_roller_get_selected(roller_patterns);
 
             char all_items[150];
@@ -438,7 +467,8 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
             roller_pos = roller_pos == len_items-1 ? 0 : item+1; 
             lv_roller_set_selected(roller_patterns,(uint16_t) roller_pos,LV_ANIM_ON);    
         }
-        else if ( strcmp(txt,LV_SYMBOL_DOWN) == 0){
+        //PRA BAIXO (é up mesmo)
+        else if ( strcmp(txt,LV_SYMBOL_UP) == 0){
             uint16_t item = lv_roller_get_selected(roller_patterns);
             Serial.print("ITEM: ");
             Serial.println(item);
@@ -447,16 +477,140 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
             memset(all_items,0,sizeof(all_items));
             strcpy(all_items,lv_roller_get_options(roller_patterns));
 
-            uint8_t len_items = lv_roller_get_option_cnt(roller_patterns);
+            //uint8_t len_items = lv_roller_get_option_cnt(roller_patterns);
 
             roller_pos = roller_pos > 0 ? roller_pos-1 : roller_pos; 
             lv_roller_set_selected(roller_patterns,(uint16_t) roller_pos,LV_ANIM_ON);
         }
-        else if (strcmp(txt,"V") == 0){
-            hsv_values.h = lv_cpicker_get_hue(cpicker);
-            lv_cpicker_set_hue(cpicker,hsv_values.h);
-            //lv_cpicker_set_hsv(cpicker, hsv_values);
-            lv_cpicker_set_color_mode(cpicker,LV_CPICKER_COLOR_MODE_VALUE);
+        //SALVAR
+        else if (strcmp(txt,LV_SYMBOL_FILE) == 0){
+            //salvar em arquivo
+            String CMYK_txt =  String(cmyk_values_struct.c) + "|" +
+                              String(cmyk_values_struct.m) + "|" +
+                              String(cmyk_values_struct.y) + "|" +
+                              String(cmyk_values_struct.k);
+
+            if (list_created){
+                memset(buf,0,sizeof(buf));
+                //lv_roller_get_selected_str(roller_patterns,buf,sizeof(buf));
+                uint16_t num_of_items = lv_roller_get_option_cnt(roller_patterns);
+                // identico ao numero de itens na lista. Os itens começam em 0, então subrair 2 para
+                //selecionar o ultimo (o primeiro esta nulo) e manter o numero para adicionar. TODO: fazer padding left de 2.
+                //lv_roller_set_selected(roller_patterns,num_of_items-2,LV_ANIM_ON);
+
+                if (num_of_items < 5){ 
+                    //TODO: msgbox item excluido
+                    //TODO: msgbox item criado
+                    String opts = lv_roller_get_options(roller_patterns);
+                    Serial.println(opts);
+                    char ch[4] = {'1','2','3','4'};
+                    for (uint8_t i=0;i<4;i++){
+                        if (strrchr(opts.c_str(),ch[i]) == NULL){
+                            sprintf(buf, "/%03d", i+1);
+                            Serial.println(buf);
+                            writeFile(SPIFFS,buf,CMYK_txt.c_str());
+                            lv_obj_del(roller_patterns);
+                            list_of_patterns();
+                            break;
+                        }
+                    }
+                }
+                else{
+                    lv_obj_t * mbox1 = lv_msgbox_create(lv_scr_act(), NULL);
+                    lv_msgbox_set_text(mbox1, "Maximo de 4 itens preenchido");
+                    lv_obj_set_width(mbox1, 180);
+                    lv_msgbox_start_auto_close(mbox1, 2000);
+                    lv_obj_align(mbox1, NULL, LV_ALIGN_CENTER, 0, 0);
+                }
+            }
+        }
+        else if (strcmp(txt,LV_SYMBOL_CUT) == 0){
+            char target[4];
+            //char full_msg[4];
+            memset(full_msg,0,sizeof(full_msg));
+            full_msg[0] = '/';
+            memset(target,0,4);
+            lv_roller_get_selected_str(roller_patterns,target,4);
+            
+            strcat(full_msg,target);
+
+            //deleteFile(SPIFFS,full_msg);
+            //lv_obj_del(roller_patterns);
+            //list_of_patterns();
+
+            //confirma exclusao
+            static const char * btns[] ={"Yes", "Cancel", ""};
+
+            msgBoxDel = lv_msgbox_create(lv_scr_act(), NULL);
+            String really = "Deseja realmente excluir ";
+            really = really + target + "?";
+            lv_msgbox_set_text(msgBoxDel, really.c_str());
+            lv_msgbox_add_btns(msgBoxDel, btns);
+            lv_obj_set_width(msgBoxDel, 200);
+            lv_obj_set_event_cb(msgBoxDel, exclude_file_cb);
+            lv_obj_align(msgBoxDel, NULL, LV_ALIGN_CENTER, 0, 0);
+
+        }
+        else if (strcmp(txt,LV_SYMBOL_DOWNLOAD) == 0){
+            memset(buf,0,sizeof(buf));
+            char target[4];
+            lv_roller_get_selected_str(roller_patterns,target,4);
+            buf[0] = '/';
+            strcat(buf,target);
+            String values = readFile(SPIFFS,buf);
+
+            Serial.println(values);
+            uint8_t i = 0;
+            int from_c = values.indexOf("|");
+            cmyk_values_struct.c = values.substring(0,from_c).toInt();
+            if (cmyk_values_struct.c > 100) cmyk_values_struct.c = 100;
+
+            int from_m = 0;
+            from_m = values.indexOf('|',from_c+1);
+            cmyk_values_struct.m = values.substring(from_c+1,from_m).toInt();
+            if (cmyk_values_struct.m > 100) cmyk_values_struct.m = 100;
+
+            int from_y = 0;
+            from_y = values.indexOf('|',from_m+1);
+            cmyk_values_struct.y = values.substring(from_m+1,from_y).toInt();
+            if (cmyk_values_struct.y > 100) cmyk_values_struct.y = 100;
+
+            int from_k = values.lastIndexOf("|");
+            cmyk_values_struct.k = values.substring(from_k+1,values.length()).toInt();
+            if (cmyk_values_struct.k > 100) cmyk_values_struct.k = 100;
+
+            //TODO: cmyk passando de 100%. acertar o 100 quando > 100
+
+            Serial.println("-=-=-=-=");
+            Serial.println(cmyk_values_struct.c);
+            lv_slider_set_value(slider_cmyk_c,cmyk_values_struct.c, LV_ANIM_OFF);
+            lv_label_set_text(slider_label_c,String(cmyk_values_struct.c).c_str());
+            Serial.println(cmyk_values_struct.m);
+            lv_slider_set_value(slider_cmyk_m,cmyk_values_struct.m, LV_ANIM_OFF);
+            lv_label_set_text(slider_label_m,String(cmyk_values_struct.m).c_str());
+            Serial.println(cmyk_values_struct.y);
+            lv_slider_set_value(slider_cmyk_y,cmyk_values_struct.y, LV_ANIM_OFF);
+            lv_label_set_text(slider_label_y,String(cmyk_values_struct.y).c_str());
+            Serial.println(cmyk_values_struct.k);
+            lv_slider_set_value(slider_cmyk_k,cmyk_values_struct.k, LV_ANIM_OFF);
+            lv_label_set_text(slider_label_k,String(cmyk_values_struct.k).c_str());
+
+            Serial.println("-=-=-=-=");
+
+            //ALIMENTAR A LINHA COM A COR CARREGADA
+
+            lv_color_t lvgl_color_format;
+            rgb rgb_result;
+            rgb_result = cmykConverter.CMYKtoRGB(cmyk_values_struct,rgb_result);
+            lvgl_color_format.full = rgb2rgb.RGB24toRGB16(rgb_result.r,rgb_result.g,rgb_result.b);
+            lv_style_set_line_color(&style_line_load, LV_STATE_DEFAULT, lvgl_color_format);
+            lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, lvgl_color_format);
+
+            lv_obj_t * msgBox = lv_msgbox_create(lv_scr_act(), NULL);
+                    lv_msgbox_set_text(msgBox, "Carregado. Clique na amostra para visualizar\n ou abra o menu CMYK");
+                    lv_obj_set_width(msgBox, 180);
+                    lv_msgbox_start_auto_close(msgBox, 2000);
+                    lv_obj_align(msgBox, NULL, LV_ALIGN_CENTER, 0, 0);
         }
     }
 }
@@ -673,20 +827,39 @@ void list_of_patterns(){
     result.replace("/","");
     result.replace("|","\n");
 
+    Serial.print("RESULT: ");
+    Serial.println(result);
+    Serial.println("====");
+
     char items_to_list[150];
+    memset(items_to_list,0,sizeof(items_to_list));
     result.toCharArray(items_to_list,sizeof(items_to_list));
     items_to_list[0] = ' ';
 
-    if (result.length() <3) return;
+    //Ordenando a lista    
+    char ordered_list[150];
+    memset(ordered_list,0,sizeof(ordered_list));
+
+    uint8_t max_items = 4;
+    char *fields_of[max_items] = {"001\n","002\n","003\n","004\n"};
+
+    for (uint8_t i=0;i<max_items;i++){
+        char *res = strstr(items_to_list,fields_of[i]);
+        if (res != NULL && strcmp(res,"\n") != 0){
+            
+            strcat(ordered_list,fields_of[i]);
+        }
+    }
 
     //Create a roller
     roller_patterns = lv_roller_create(color_load, NULL);
-    lv_roller_set_options(roller_patterns, items_to_list, LV_ROLLER_MODE_INIFINITE);
+    lv_roller_set_options(roller_patterns, ordered_list, LV_ROLLER_MODE_INIFINITE); //TODO: reload
 
-    lv_roller_set_fix_width(roller_patterns,154);
+    lv_roller_set_fix_width(roller_patterns,174);
     lv_roller_set_visible_row_count(roller_patterns, 3);
     lv_obj_align(roller_patterns, NULL, LV_ALIGN_IN_TOP_LEFT, 0, 0);
 
+    list_created = true;
     //TODO: callback
 /*
     char *it;
@@ -732,7 +905,7 @@ void colorToSampleLineRGB(){
 
 void sliders_cmyk(lv_obj_t target){
 
-    lv_obj_t * slider_cmyk_c = lv_slider_create(&target, NULL);
+    slider_cmyk_c = lv_slider_create(&target, NULL);
     lv_obj_set_width(slider_cmyk_c, 130);
     lv_obj_align(slider_cmyk_c, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 10);
     lv_obj_set_event_cb(slider_cmyk_c, slider_c_cb);
@@ -743,7 +916,7 @@ void sliders_cmyk(lv_obj_t target){
     lv_obj_set_auto_realign(slider_label_c, true);
     lv_obj_align(slider_label_c, slider_cmyk_c, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
-    lv_obj_t * slider_cmyk_m = lv_slider_create(&target, NULL);
+    slider_cmyk_m = lv_slider_create(&target, NULL);
     lv_obj_set_width(slider_cmyk_m, 130);
     lv_obj_align(slider_cmyk_m, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 50);
     lv_obj_set_event_cb(slider_cmyk_m, slider_m_cb);
@@ -754,7 +927,7 @@ void sliders_cmyk(lv_obj_t target){
     lv_obj_set_auto_realign(slider_label_m, true);
     lv_obj_align(slider_label_m, slider_cmyk_m, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
-    lv_obj_t * slider_cmyk_y = lv_slider_create(&target, NULL);
+    slider_cmyk_y = lv_slider_create(&target, NULL);
     lv_obj_set_width(slider_cmyk_y, 130);
     lv_obj_align(slider_cmyk_y, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 90);
     lv_obj_set_event_cb(slider_cmyk_y, slider_y_cb);
@@ -765,7 +938,7 @@ void sliders_cmyk(lv_obj_t target){
     lv_obj_set_auto_realign(slider_label_y, true);
     lv_obj_align(slider_label_y, slider_cmyk_y, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
-    lv_obj_t * slider_cmyk_k = lv_slider_create(&target, NULL);
+    slider_cmyk_k = lv_slider_create(&target, NULL);
     lv_obj_set_width(slider_cmyk_k, 130);
     lv_obj_align(slider_cmyk_k, NULL, LV_ALIGN_IN_TOP_LEFT, 10, 130);
     lv_obj_set_event_cb(slider_cmyk_k, slider_k_cb);
@@ -847,6 +1020,21 @@ void cmykSample(){
     lv_obj_align(line_cmyk, NULL, LV_ALIGN_IN_TOP_RIGHT, -15, 10);
 }
 
+void loadSample(){ //TODO: carregar a cor do loadSample e do cmykSample quando carregada uma amostra
+    static lv_point_t line_points[] = { {0, 0}, {0, 95}};
+    lv_style_init(&style_line_load);
+    lv_style_set_line_width(&style_line_load, LV_STATE_DEFAULT, 5);
+    lv_style_set_line_color(&style_line_load, LV_STATE_DEFAULT, LV_COLOR_WHITE);
+    lv_style_set_line_rounded(&style_line_load, LV_STATE_DEFAULT, false);
+
+    /*Create a line and apply the new style*/
+    
+    line_load = lv_line_create(color_load, NULL);
+    lv_line_set_points(line_load, line_points, 2);     /*Set the points*/
+    lv_obj_add_style(line_load, LV_LINE_PART_MAIN, &style_line_load);     /*Set the points*/
+    lv_obj_align(line_load, NULL, LV_ALIGN_IN_TOP_RIGHT, -15, 10);
+}
+
 void rgbSample(){
     static lv_point_t line_points[] = { {0, 0}, {0, 130}};
     lv_style_init(&style_line_rgb);
@@ -911,7 +1099,7 @@ void mtx_load_color(lv_obj_t  target){
     load_color_mtx_btn = lv_btnmatrix_create(&target, NULL);
     lv_btnmatrix_set_map(load_color_mtx_btn, load_btns);
 
-    lv_obj_align(load_color_mtx_btn, &target, LV_ALIGN_IN_BOTTOM_LEFT, 0, 36);
+    lv_obj_align(load_color_mtx_btn, &target, LV_ALIGN_IN_BOTTOM_LEFT, 0, 38);
 
     lv_obj_set_height(load_color_mtx_btn,40);
     lv_obj_set_width(load_color_mtx_btn,204);
@@ -1068,7 +1256,6 @@ void type_values_hsv(lv_obj_t target){
 
 void tabs(){
     /* CRIA UM OBJETO TABVIEW */
-    lv_obj_t *tabview;
     tabview = lv_tabview_create(lv_scr_act(), NULL); //TABVIEW PRINCIPAL
 
     /* tabs principais */
@@ -1155,17 +1342,11 @@ void tabs(){
     spinbox_ink_volumeRGB(*color_rgb);
     rgbSample();
 
-    //writeFile(SPIFFS,"/azul","90,20,0,4");
-    //writeFile(SPIFFS,"/verde","90,20,0,4");
-    //writeFile(SPIFFS,"/amarelo","90,20,0,4");
-    //deleteFile(SPIFFS,"/azul_banana");
-    //deleteFile(SPIFFS,"/verde_alicate");
-    //deleteFile(SPIFFS,"/amarelo_oceano");
-
     start_button(*color_load);
     spinbox_ink_volumeLoad(*color_load);
     mtx_load_color(*color_load);
     list_of_patterns();
+    loadSample();
 
     //---------------------------- ULTIMA CAMADA -----------------------------------
     /* ESSA CAMADA VAI NA SCREEN PRINCIPAL, "FLUTUANDO" SOBRE A TABVIEW. 
@@ -1230,6 +1411,7 @@ void setup() {
 
     Serial.begin(115200);
 
+    //SPIFFS.format();
     if(!SPIFFS.begin(true)){
         Serial.println("SPIFFS Mount Failed");
         return;

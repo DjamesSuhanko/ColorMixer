@@ -64,19 +64,26 @@ void listDir(fs::FS &fs, const char * dirname, uint8_t levels){
     }
 }
 
-void readFile(fs::FS &fs, const char * path){
+String readFile(fs::FS &fs, const char * path){
     Serial.printf("Reading file: %s\n", path);
 
     File file = fs.open(path);
     if(!file || file.isDirectory()){
         Serial.println("Failed to open file for reading");
-        return;
+        return "";
     }
 
     Serial.print("Read from file: ");
+    char msg[20];
+    memset(msg,0,sizeof(msg));
+    uint8_t i = 0;
     while(file.available()){
-        Serial.write(file.read());
+        msg[i] = file.read(); 
+        i++;
     }
+    
+    String result = String(msg);
+    return result;
 }
 
 void writeFile(fs::FS &fs, const char * path, const char * message){
