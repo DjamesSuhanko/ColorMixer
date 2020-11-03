@@ -21,8 +21,10 @@ You are free to use this code, just preserve author reference.
 
 #define HUE_ANGLE 360
 
-#define SSID   "SuhankoFamily"
-#define PASSWD "fsjmr112"
+#define SSID   "colorMixer"
+#define PASSWD "dobitaobyte"
+
+#define PCF_ADDR 0x27
 
 EasyPCF8574 pcfSmart(0x27,0xFF);
 TFT_eSPI tft = TFT_eSPI(); /* driver do touch */
@@ -68,7 +70,7 @@ void list_of_patterns();
 void hsv_plus_minus(lv_obj_t target);
 
 void start_button(lv_obj_t target);
-void spinbox_ink_volume(lv_obj_t target);
+
 void spinbox_ink_volumeRGB(lv_obj_t target);
 
 void mtx_load_color(lv_obj_t  target);
@@ -104,6 +106,11 @@ static void hsv_plus_minus_cb(lv_obj_t * obj, lv_event_t event);
 void cpicker_cb(lv_obj_t * obj, lv_event_t event);
 
 void exclude_file_cb(lv_obj_t * obj, lv_event_t event);
+
+//-------------------- tasks ------------------------
+void pump(void *pvParameters);
+void fromPicker(void *pvParameters);
+//////////////////////tasks//////////////////////////
 
 //Mudando de aba, realimenta o spinbox
 static void tab_feeding_spinbox_cb(lv_obj_t *obj, lv_event_t event);
@@ -185,6 +192,30 @@ uint8_t txt_area_index = 0;
 uint8_t roller_pos     = 0;
 bool list_created      = false;
 char full_msg[4]; //arquivo a excluir
+
+//-=-=-=-=-=-=-=-=-=-=-=-=-=- REQUISITOS FUNCIONAIS -=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+boolean pump_is_running     = false;
+
+SemaphoreHandle_t myMutex   = NULL;
+
+TaskHandle_t task_zero      = NULL;
+TaskHandle_t task_one       = NULL;
+TaskHandle_t task_two       = NULL;
+TaskHandle_t task_three     = NULL;
+
+struct pump_t {
+    uint8_t pcf_value       = 255;                                      // estados dos pinos
+    uint8_t pumps_bits[4]   = {7,6,5,4};                                // apenas para ordenar da esquerda para direita logicamente  
+    TaskHandle_t handles[4] = {task_zero,task_one,task_two,task_three}; //manipuladores das tasks
+    uint8_t running         = 0;                                        //cada task incrementa e decrementa. 0 é parado.
+    unsigned long  times[4] = {0,0,0,0};                                
+} pump_params;
+
+float one_ml                = 2141; //o volume está em spinbox_ink_volume_value
+
+char *labels[4]             = {"cyan","magent","yellow","black"};
+//socket server para o color picker =======================================
+WiFiServer server(1234); 
 
 //callbacks
 
@@ -424,8 +455,7 @@ static void txtarea_val_cb(lv_obj_t * obj, lv_event_t event){
     }
 } 
 
-static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event)
-{
+static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
         const char * txt = lv_btnmatrix_get_active_btn_text(obj);
 
@@ -499,8 +529,7 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
                 //lv_roller_set_selected(roller_patterns,num_of_items-2,LV_ANIM_ON);
 
                 if (num_of_items < 5){ 
-                    //TODO: msgbox item excluido
-                    //TODO: msgbox item criado
+                    //TODO: aumentar patterns salvos?
                     String opts = lv_roller_get_options(roller_patterns);
                     Serial.println(opts);
                     char ch[4] = {'1','2','3','4'};
@@ -607,7 +636,7 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
             lv_style_set_line_color(&style_line_cmyk, LV_STATE_DEFAULT, lvgl_color_format);
 
             lv_obj_t * msgBox = lv_msgbox_create(lv_scr_act(), NULL);
-                    lv_msgbox_set_text(msgBox, "Carregado. Clique na amostra para visualizar\n ou abra o menu CMYK");
+                    lv_msgbox_set_text(msgBox, "Carregado. Veja a amostra a direita\n ou abra o menu CMYK");
                     lv_obj_set_width(msgBox, 180);
                     lv_msgbox_start_auto_close(msgBox, 2000);
                     lv_obj_align(msgBox, NULL, LV_ALIGN_CENTER, 0, 0);
@@ -793,20 +822,26 @@ static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event){
 
 //btn start
 static void btn_start_cb(lv_obj_t * obj, lv_event_t event){
+    //TODO: checar se o volume em ml é 0, então não inicia
+    
     if(event == LV_EVENT_CLICKED) {
-        printf("Clicked\n");
-        Serial.println(hsv_values.h);
-        Serial.println(hsv_values.s);
-        Serial.println(hsv_values.v);
+        if (spinbox_ink_volume_value > 0){
+            printf("botao start\n");
 
-        Serial.println(cmyk_values_struct.c);
-        Serial.println(cmyk_values_struct.m);
-        Serial.println(cmyk_values_struct.y);
-        Serial.println(cmyk_values_struct.k);
-
-    }
-    else if(event == LV_EVENT_VALUE_CHANGED) {
-        printf("Toggled\n");
+            for (int j=0; j<4;j++){
+                xTaskCreatePinnedToCore(pump,labels[j],10000,(void*) j,0,&pump_params.handles[j],0);
+            }
+        }
+        else if(event == LV_EVENT_VALUE_CHANGED) {
+            printf("Toggled\n");
+        }
+        else{
+            lv_obj_t * msgBoxVolumeZero = lv_msgbox_create(lv_scr_act(), NULL);
+            lv_msgbox_set_text(msgBoxVolumeZero, "Defina um volume para extracao (ML)");
+            lv_obj_set_width(msgBoxVolumeZero, 180);
+            lv_msgbox_start_auto_close(msgBoxVolumeZero, 3000);
+            lv_obj_align(msgBoxVolumeZero, NULL, LV_ALIGN_CENTER, 0, 0);
+        }
     }
 }
 
@@ -1260,7 +1295,7 @@ void tabs(){
 
     /* tabs principais */
     lv_obj_t *tab_color = lv_tabview_add_tab(tabview, "Color");
-    lv_obj_t *tab_setup = lv_tabview_add_tab(tabview, "Setup");
+    lv_obj_t *tab_setup = lv_tabview_add_tab(tabview, "System");
     lv_obj_t *tab_about = lv_tabview_add_tab(tabview, "About");
 
     lv_obj_t *tabview_color;
@@ -1291,15 +1326,27 @@ void tabs(){
     //--------------------------TAB 1: COLORS-------------------------------------------
     
 
-    //--------------------------TAB 2: SETUP-------------------------------------------
+    //--------------------------TAB 2: SYSTEM-------------------------------------------
     lv_obj_t *l2 = lv_label_create(tab_setup, NULL);
-    lv_label_set_text(l2, "Aba setup");
+    lv_label_set_text(l2, "Aba System");
     lv_obj_align(l2, NULL, LV_ALIGN_IN_TOP_MID, 0, 10);
 
     //--------------------------TAB 3: ABOUT-------------------------------------------
     lv_obj_t *l3 = lv_label_create(tab_about, NULL);
-    lv_label_set_text(l3, "Aba About");
+    String txtAbout = " Author: Djames Suhanko\n";;
+    txtAbout = txtAbout + "www.dobitaobyte.com.br\n\n";
+    txtAbout = txtAbout + "   Board: AFSmartControl\n";
+    txtAbout = txtAbout + "      afeletronica.com.br\n\n";
+    txtAbout = txtAbout + "        Display: ILI9341 2.4\n\n";
+    txtAbout = txtAbout + "lv_arduino\n";
+    txtAbout = txtAbout + "TFT_eSPI\n";
+    txtAbout = txtAbout + "EasyColor\n";
+    txtAbout = txtAbout + "EasyPCF8574\n";
+    txtAbout = txtAbout +  "           ColorMixer 2.0";
+    lv_label_set_text(l3, txtAbout.c_str());
     lv_obj_align(l3, NULL, LV_ALIGN_IN_TOP_MID, 0, 10);
+
+
 
     //==============TAB HSV ===============
     lv_obj_t *switch_hsv = lv_switch_create(color_hsv, NULL);
@@ -1400,6 +1447,12 @@ bool my_input_read(lv_indev_drv_t * drv, lv_indev_data_t*data){
 }
 
 void setup() {
+    vSemaphoreCreateBinary(myMutex);
+
+    //TODO: Mostrar o ip no dashboard
+    WiFi.softAP(SSID,PASSWD);
+    IPAddress myIp = WiFi.localIP();
+
     hsv_values.h = 0;
     hsv_values.s = 100;
     hsv_values.v = 100;
@@ -1417,10 +1470,16 @@ void setup() {
         return;
     }
 
-    if (!pcfSmart.startI2C(21,22)){
-        Serial.println("Not started. Check pin and address.");
-        while (true);
-    }
+    //if (!pcfSmart.startI2C(21,22)){
+    //    Serial.println("Not started. Check pin and address.");
+     //   while (true);
+    //}
+    Wire.begin(21,22);
+    Wire.beginTransmission(PCF_ADDR);
+    Wire.write(0xFF);
+    Wire.endTransmission();
+
+    server.begin();
 
     lv_init();
 
@@ -1497,9 +1556,110 @@ void setup() {
     Serial.println(teste3.r);
     Serial.println(teste3.g);
     Serial.println(teste3.b);
+
+    /* Essa tarefa recebe os valores CMYK do picker e atribui à variável
+    values[n]. Fazendo isso, automaticamente a interface será atualizada.
+    O início da mistura só pode ser feito pelo botão iniciar para não ter
+    risco de ataque pela rede.
+    */
+    xTaskCreatePinnedToCore(fromPicker,"fromPicker",10000,NULL,0,NULL,0);
 }
 
 void loop() {
     lv_task_handler();
     delay(5);
+}
+//TODO: se ml = 0, o botao de start inicia o msgbox informando e nao executa
+void pump(void *pvParameters){
+   int color_bit = (int) pvParameters;
+
+   vTaskDelay(pdMS_TO_TICKS(200)); //apenas para entrar em fila com as outras tasks
+
+   xSemaphoreTake(myMutex,portMAX_DELAY);
+   int value[4];
+   memset(value,0,sizeof(value));
+   value[0] = cmyk_values_struct.c;
+   value[1] = cmyk_values_struct.m;
+   value[2] = cmyk_values_struct.y;
+   value[3] = cmyk_values_struct.k;
+
+   if (value[color_bit] > 0){
+        pump_params.running += 1; //a partir de agora nenhuma alteração é permitida até voltar a 0.
+        pump_params.times[color_bit] = spinbox_ink_volume_value*(value[color_bit])*one_ml/100; //tempo de execução da bomba
+
+        pump_params.pcf_value = pump_params.pcf_value&~(1<<pump_params.pumps_bits[color_bit]); //baixa o bit (liga com 0)
+
+        Wire.beginTransmission(PCF_ADDR); //inicia comunicação i2c no endereço do PCF
+        Wire.write(pump_params.pcf_value); //escreve o valor recém modificado
+        Wire.endTransmission(); //finaliza a transmissão
+        Serial.println(pump_params.times[color_bit]);
+   }
+   xSemaphoreGive(myMutex);
+
+   vTaskDelay(pdMS_TO_TICKS(pump_params.times[color_bit])); //executa o delay conforme calculado
+    
+    xSemaphoreTake(myMutex,portMAX_DELAY);
+    if (value[color_bit] > 0){
+        pump_params.pcf_value = pump_params.pcf_value|(1<<pump_params.pumps_bits[color_bit]);
+
+        Wire.beginTransmission(PCF_ADDR);
+        Wire.write(pump_params.pcf_value); 
+        Wire.endTransmission();
+
+        pump_params.running -= 1;
+        pump_params.times[color_bit] = 0;
+    }
+    xSemaphoreGive(myMutex);
+
+   vTaskDelete(NULL); //finaliza a task e se exclui
+}
+
+void fromPicker(void *pvParameters){
+    //Serial.println("Start listening...");
+
+   /* Lógica invertida: o GND é o PCF, portanto o pino deve ser colocado em 0 para 
+   acionar os relés (addr: 0x27).
+   As tasks são tCyan, tMagent, tYellow e tBlack
+   RELES:
+    128    64     32     16
+   [ C ]  [ M ]  [ Y ]  [ K ]
+     7      6      5      4
+   */
+    uint8_t i = 0;
+    uint8_t result[6];
+    memset(result,0,sizeof(result));
+
+    while (true){
+        WiFiClient client = server.available();
+        if (client){
+            //Serial.print("RGBarray[0]: ");
+            //Serial.println(RGBarray[2]);
+            i = 0;
+            while (client.connected()){
+                //avalia se tem dados e controla o buffer
+                if (client.available() && i<6){
+                    result[i] = client.read();
+                    //Serial.println(result[i]);
+                    i = result[0] == 94 ? i+1 : 0;
+                    ////Serial.println(result[0]);
+                }
+            }
+            client.stop();
+        }
+
+        //TODO: checar se os memset estão verificando os tipos com sizeof - IMPORTANTE
+        if (result[0] == 0x5e && pump_params.running == 0){
+            int value[4];
+            memset(value,0,sizeof(value));
+            value[0] = cmyk_values_struct.c;
+            value[1] = cmyk_values_struct.m;
+            value[2] = cmyk_values_struct.y;
+            value[3] = cmyk_values_struct.k;
+
+            for (uint k=0;k<4;k++){
+                value[k] = result[k+1]; //esse incremento é porque a msg começa na posição 1 (^CMYK$)
+            }
+            memset(result,0,sizeof(result));
+        }    
+    }
 }
