@@ -18,16 +18,17 @@ You are free to use this code, just preserve author reference.
 #define DISPLAY_WIDTH  240
 #define display_HEIGHT 320
 
-#define SOCK_FILE "/socket.ini"
+#define HUE_ANGLE      360
+#define PCF_ADDR       0x27
 
-#define HUE_ANGLE 360
+#define SOCK_FILE "/socket.ini"
+#define WIFI_FILE "/wifi.ini"
 
 #define SSID   "colorMixer"
 #define PASSWD "dobitaobyte"
 
-#define PCF_ADDR 0x27
 
-EasyPCF8574 pcfSmart(0x27,0xFF);
+EasyPCF8574 pcfSmart(PCF_ADDR,0xFF);
 TFT_eSPI tft = TFT_eSPI(); /* driver do touch */
 
 //BUFFER DE FRAME DO DISPLAY
@@ -70,9 +71,13 @@ void list_of_patterns();
 
 void list_of_files_roller_files();
 
+//setup socket
 bool change_socket_to();
-
 bool can_start_socket();
+
+//setup wifi
+bool change_wifi_to();
+bool can_start_wifi();
 
 void hsv_plus_minus(lv_obj_t target);
 
@@ -239,7 +244,7 @@ char full_msg[20]; //arquivo a excluir
 //-=-=-=-=-=-=-=-=-=-=-=-=-=- REQUISITOS FUNCIONAIS -=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 boolean pump_is_running     = false;
 boolean is_mode_ap          = true;
-boolean is_socket_open      = true;
+boolean unused              = true; // TODO: eliminar, nao é util mais
 
 SemaphoreHandle_t myMutex   = NULL;
 
@@ -907,10 +912,24 @@ void cpicker_cb(lv_obj_t * obj, lv_event_t event){
     }
 }
 
+//callback do switch do wifi
+static void event_handler_wifi_switch(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        unused = change_wifi_to();
+        static const char * btns[] ={"Yes", "No", ""};
+        msgBoxDel = lv_msgbox_create(lv_scr_act(), NULL);
+        lv_msgbox_set_text(msgBoxDel, "Reiniciar sistema agora?");
+        lv_msgbox_add_btns(msgBoxDel, btns);
+        lv_obj_set_width(msgBoxDel, 200);
+        lv_obj_set_event_cb(msgBoxDel, reboot_cb);
+        lv_obj_align(msgBoxDel, NULL, LV_ALIGN_CENTER, 0, 0);
+    }
+}
+
 //callback do switch do socket
 static void event_handler_socket_switch(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
-        is_socket_open = change_socket_to();
+        unused = change_socket_to();
         static const char * btns[] ={"Yes", "No", ""};
         msgBoxDel = lv_msgbox_create(lv_scr_act(), NULL);
         lv_msgbox_set_text(msgBoxDel, "Reiniciar sistema agora?");
@@ -1105,8 +1124,10 @@ void list_of_patterns(){
     }*/
 }
 
-bool can_start_socket(){
-    String st = readFile(SPIFFS, SOCK_FILE);
+bool can_start_wifi(){
+    String st = readFile(SPIFFS, WIFI_FILE);
+    Serial.print("Conteudo do wifi.ini: ");
+    Serial.println(st);
     if ( st == ""){
         return true;
     }
@@ -1117,6 +1138,44 @@ bool can_start_socket(){
     else{
         //deve ser enable. outra condicao cai aqui
         return true;
+    }
+}
+
+bool can_start_socket(){
+    String st = readFile(SPIFFS, SOCK_FILE);
+    Serial.print("Conteudo do socket.ini");
+    Serial.println(st);
+    if ( st == ""){
+        return true;
+    }
+    else if (st == "disable"){
+        //esta desativado
+        return false;
+    }
+    else{
+        //deve ser enable. outra condicao cai aqui
+        return true;
+    }
+}
+
+bool change_wifi_to(){
+    String st = readFile(SPIFFS, WIFI_FILE);
+    if ( st == ""){
+        //nao existe, entao o padrao é enable. desativar
+        writeFile(SPIFFS, WIFI_FILE, "disable");
+        return false;
+    }
+    else if (st == "disable"){
+        //esta desativado, entao ativa
+        deleteFile(SPIFFS, WIFI_FILE);
+        writeFile(SPIFFS, WIFI_FILE, "enable");
+        return true;
+    }
+    else{
+        //deve ser enable, entao desativa. outra condicao cai aqui
+        deleteFile(SPIFFS, WIFI_FILE);
+        writeFile(SPIFFS, WIFI_FILE, "disable");
+        return false;
     }
 }
 
@@ -1636,9 +1695,6 @@ void setupEnableSock(lv_obj_t target){
     }
 
     lv_obj_set_event_cb(switch_socket, event_handler_socket_switch);
-
-    //TODO: fazer msgbox para perguntar se deve fazer reboot
-    //reboot: ESP.restart()s
 }
 
 void setupChangeLogin(lv_obj_t target){
@@ -1650,7 +1706,30 @@ void setupEnableLogin(lv_obj_t target){
 }
 
 void setupDisableWiFi(lv_obj_t target){
+    //TODO: criar label esquerdo e direito
+    //TODO: testar a mudança de estado sem acionar o callback
+    //TODO: mudar label  Listen do info
+    lv_obj_t *label_sock_title = lv_label_create(&target, NULL);
+    lv_label_set_text(label_sock_title, "Enable WiFi");
+    lv_obj_align(label_sock_title, NULL, LV_ALIGN_IN_TOP_LEFT, 2, 55);
 
+    lv_obj_t *label_sock_off = lv_label_create(&target, NULL);
+    lv_label_set_text(label_sock_off, "OFF");
+    lv_obj_align(label_sock_off, NULL, LV_ALIGN_IN_TOP_LEFT, 0, 80);
+
+
+    lv_obj_t *switch_wifi = lv_switch_create(&target, NULL);
+    lv_obj_align(switch_wifi, NULL, LV_ALIGN_IN_TOP_LEFT, 40, 75);
+
+    lv_obj_t *label_sock_on = lv_label_create(&target, NULL);
+    lv_label_set_text(label_sock_on, "ON");
+    lv_obj_align(label_sock_on, NULL, LV_ALIGN_IN_TOP_LEFT, 96, 80);
+
+    if (can_start_wifi()){
+        lv_switch_toggle(switch_wifi, LV_ANIM_OFF);
+    }
+
+    lv_obj_set_event_cb(switch_wifi, event_handler_wifi_switch);
 }
 
 void setupWiFiMode(lv_obj_t target){
@@ -1720,6 +1799,7 @@ void tabs(){
     mtx_load_files_btn(*tab_info);
 
     setupEnableSock(*tab_setup);
+    setupDisableWiFi(*tab_setup);
 
 
      /* UMA ANIMAÇÃO SIMPLES (OPCIOINAL)*/
@@ -1843,7 +1923,9 @@ void setup() {
     vSemaphoreCreateBinary(myMutex);
 
     //TODO: Mostrar o ip no dashboard
-    WiFi.softAP(SSID,PASSWD);
+    if (can_start_wifi){
+        WiFi.softAP(SSID,PASSWD); //TODO: validar o modo
+    }
 
     hsv_values.h = 0;
     hsv_values.s = 100;
@@ -1872,7 +1954,7 @@ void setup() {
     Wire.endTransmission();
 
     //TODO: fazer função de ler e avaliar
-    if (can_start_socket()){
+    if (can_start_socket() && can_start_wifi()){
         server.begin();
     }
     
