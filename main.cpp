@@ -16,16 +16,19 @@ You are free to use this code, just preserve author reference.
 #include "fileHandler.h"
 
 #define DISPLAY_WIDTH  240
-#define display_HEIGHT 320
+#define DISPLAY_HEIGHT 320
 
 #define HUE_ANGLE      360
 #define PCF_ADDR       0x27
 
-#define SOCK_FILE "/socket.ini"
-#define WIFI_FILE "/wifi.ini"
+#define SOCK_FILE         "/socket.ini"
+#define WIFI_FILE         "/wifi.ini"
+#define PASSWD_LOGIN_FILE "/login.ini"
 
 #define SSID   "colorMixer"
 #define PASSWD "dobitaobyte"
+
+#define DEFAULT_LOGIN_PASSWD "123456"
 
 
 EasyPCF8574 pcfSmart(PCF_ADDR,0xFF);
@@ -199,6 +202,9 @@ lv_obj_t * msgBoxDel;
 lv_obj_t *tab_info;
 lv_obj_t *tab_setup;
 
+//login
+lv_obj_t *labelB;
+
 static lv_style_t style_line;
 static lv_style_t style_line_cmyk;
 static lv_style_t style_line_rgb;
@@ -264,12 +270,81 @@ struct pump_t {
 float one_ml                = 2141; //o volume está em spinbox_ink_volume_value
 
 char *labels[4]             = {"cyan","magent","yellow","black"};
+char asterisc[6]            = {' '};
+
+uint8_t pwd_pos             = 0;
+
+bool has_logged_in          = false;
+
+bool was_logoff             = false; //depois de logar 1x, nao precisa mais iniciar os infos após tabs
 //socket server para o color picker =======================================
 WiFiServer server(1234); 
 
 //callbacks
 
-//excluir arquivo
+
+//logoff
+static void event_logoff(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_INDEV_STATE_PR) {
+        ESP.restart();
+    }
+}
+
+//passwd
+static void event_handler_passwd(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        const char * txt = lv_btnmatrix_get_active_btn_text(obj);
+        //CONDICAO 1: senha bate!
+        if (strcmp(txt,">") == 0 && asterisc[5] != ' '){
+            if (strcmp(asterisc,"123456") == 0){
+                Serial.println("login ok");  
+                pwd_pos = 0;
+                memset(asterisc,' ',sizeof(asterisc));  
+            }
+            memset(asterisc,' ',sizeof(asterisc));
+            lv_obj_del(obj);
+            if (can_start_wifi()){
+                WiFi.softAP(SSID,PASSWD); //TODO: validar o modo
+            }
+            
+            if (can_start_socket() && can_start_wifi()){
+                server.begin();
+                xTaskCreatePinnedToCore(fromPicker,"fromPicker",10000,NULL,0,NULL,0);
+            }
+            lv_obj_del(obj);
+            tabs();
+            delay(2000);
+            infoWiFi(*tab_info);
+            infoSock(*tab_info);
+            
+        }
+        //CONDICAO 2: senha nao bate
+        else if (strcmp(txt,">") == 0 && asterisc[5] != DEFAULT_LOGIN_PASSWD[5]){
+            memset(asterisc,' ',sizeof(asterisc));
+            Serial.println("You should not pass");
+            pwd_pos = 0;
+        }
+        //CONDICAO 3: digitou mais do que deveria
+        else if (strcmp(txt,">") != 0 && asterisc[5] != ' ' && txt[0] != 'x'){
+            memset(asterisc,' ',sizeof(asterisc));
+            pwd_pos = 0;
+            Serial.println("You should not pass");
+        }
+        //CONDICAO 4: ainda nao completou a senha, entao concatena (se nao for correcao)
+        else if (asterisc[5] == ' ' && txt[0] != 'x'){
+            asterisc[pwd_pos] = txt[0];
+            pwd_pos += 1;
+        }
+        //CONDICAO 5: corrigindo senha
+        else if (txt[0] == 'x'){
+            pwd_pos = pwd_pos > 0 ? pwd_pos-1 : 0; //apaga só até chegar em 0
+            asterisc[pwd_pos] = ' ';
+            
+        }
+        Serial.println(asterisc);
+        lv_label_set_text_fmt(labelB,"%s\0",asterisc);
+    }
+}
 
 void reboot_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
@@ -1736,6 +1811,32 @@ void setupWiFiMode(lv_obj_t target){
 
 }
 
+void loginScreen(){
+    //cria a tela para receber os widgets
+    lv_obj_t * page = lv_page_create(lv_scr_act(), NULL); //a página é criada na janela principal
+    lv_obj_set_size(page, DISPLAY_WIDTH, DISPLAY_HEIGHT); // ocupa o tamanho total da tela
+    lv_page_set_scrlbar_mode(page, LV_SCRLBAR_MODE_OFF); //desabilita o scrollbar
+    lv_obj_align(page, NULL, LV_ALIGN_CENTER, 0, 0); //alinha ao centro
+    //Cria um array com os labels para os botões. Como explicado no artigo anterior, LF cria nova linha e "" finaliza.
+    static const char * keypad[] = {"A","B","C","\n",
+                                    "D","E","F","\n",
+                                    "1","2","3","\n",
+                                    "4","5","6","\n",
+                                    "7","8","9","\n",
+                                    "x","0",">",""};
+    lv_obj_t * btnm1 = lv_btnmatrix_create(page, NULL); //cria um objeto do tipo lv_obj_t com o widget de matriz de botões
+    lv_btnmatrix_set_map(btnm1, keypad); //configura o array de botões                               
+    lv_obj_align(btnm1, NULL, LV_ALIGN_IN_BOTTOM_MID, -8, -86); //alinha o array de botões na base
+    lv_obj_set_width(btnm1,230); //uma leve "apertadinha" na largura para sobrar uns pixels na tela
+    lv_obj_set_height(btnm1,226);
+    lv_obj_set_event_cb(btnm1, event_handler_passwd); //define a função de callback
+    //label que exibirá a senha. Veremos sobre os símbolos disponíveis também
+    labelB = lv_label_create(page, NULL);
+    lv_label_set_text(labelB, LV_SYMBOL_EYE_OPEN "   (senha visivel)"); //https://docs.lvgl.io/v7/en/html/overview/font.html
+    lv_obj_align(labelB, NULL, LV_ALIGN_IN_TOP_MID, -5, 20); //alinhamento
+    
+}
+
 void tabs(){
     /* CRIA UM OBJETO TABVIEW */
     tabview = lv_tabview_create(lv_scr_act(), NULL); //TABVIEW PRINCIPAL
@@ -1880,7 +1981,7 @@ void tabs(){
     lv_obj_align(btn_logoff,NULL,LV_ALIGN_IN_BOTTOM_RIGHT,-5,8);
     lv_obj_set_width(btn_logoff,30);
     lv_obj_set_height(btn_logoff,30);
-    //lv_obj_set_event_cb(btn_logoff, event_logoff);
+    lv_obj_set_event_cb(btn_logoff, event_logoff);
 
     lv_obj_t *icon_logoff = lv_label_create(btn_logoff, NULL);
     lv_label_set_text(icon_logoff, LV_SYMBOL_POWER);
@@ -1922,11 +2023,6 @@ bool my_input_read(lv_indev_drv_t * drv, lv_indev_data_t*data){
 void setup() {
     vSemaphoreCreateBinary(myMutex);
 
-    //TODO: Mostrar o ip no dashboard
-    if (can_start_wifi){
-        WiFi.softAP(SSID,PASSWD); //TODO: validar o modo
-    }
-
     hsv_values.h = 0;
     hsv_values.s = 100;
     hsv_values.v = 100;
@@ -1952,12 +2048,6 @@ void setup() {
     Wire.beginTransmission(PCF_ADDR);
     Wire.write(0xFF);
     Wire.endTransmission();
-
-    //TODO: fazer função de ler e avaliar
-    if (can_start_socket() && can_start_wifi()){
-        server.begin();
-    }
-    
 
     lv_init();
 
@@ -1987,10 +2077,6 @@ void setup() {
     indev_drv.read_cb = my_input_read;
     lv_indev_drv_register(&indev_drv);
 
-
-    //Tutorial LVGL - 02
-    tabs();
-
     rgb out_rgb;
     out_rgb.r = 220;
     out_rgb.g = 180;
@@ -2011,39 +2097,13 @@ void setup() {
     in_hsv.s = 100;
     in_hsv.v = 255;
 
-    delay(2000);
-
-    Serial.println("RGB");
-    out_rgb =  hsvConverter.HSVtoRGB(in_hsv,out_rgb);
-    Serial.println(out_rgb.r);
-    Serial.println(out_rgb.g);
-    Serial.println(out_rgb.b);
-
-    Serial.println("HVS");
-    out_hsv = hsvConverter.RGBtoHSV(in_rgb, out_hsv);
-    Serial.println(out_hsv.h);
-    Serial.println(out_hsv.s);
-    Serial.println(out_hsv.v);
-
-    //Serial.println(teste1.g->);
-    //hsvConverter
-    uint16_t teste1 = rgb2rgb.RGB24toRGB16(0x80,0x80,0x00);
-    Serial.println(teste1,HEX);
-
-    rgb teste3 = rgb2rgb.RGB16toRGB24(0x8400);
-    Serial.println(teste3.r);
-    Serial.println(teste3.g);
-    Serial.println(teste3.b);
-
-    infoWiFi(*tab_info);
-    infoSock(*tab_info);
+    loginScreen();
 
     /* Essa tarefa recebe os valores CMYK do picker e atribui à variável
     values[n]. Fazendo isso, automaticamente a interface será atualizada.
     O início da mistura só pode ser feito pelo botão iniciar para não ter
     risco de ataque pela rede.
     */
-    xTaskCreatePinnedToCore(fromPicker,"fromPicker",10000,NULL,0,NULL,0);
 }
 
 void loop() {
