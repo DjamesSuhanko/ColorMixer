@@ -4,7 +4,7 @@
 #include <string.h>
 
 String getFilenames(fs::FS &fs, const char * dirname, uint8_t levels){
-    uint8_t MAX_CHARS = 150;
+    uint8_t MAX_CHARS = 300;
     char filenames[MAX_CHARS];
     memset(filenames,0,sizeof(filenames));
     filenames[0] = '|';

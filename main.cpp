@@ -14,10 +14,11 @@ You are free to use this code, just preserve author reference.
 #include <math.h>
 #include "EasyColor.h"
 #include "fileHandler.h"
-#include <string.h>
 
 #define DISPLAY_WIDTH  240
 #define display_HEIGHT 320
+
+#define SOCK_FILE "/socket.ini"
 
 #define HUE_ANGLE 360
 
@@ -52,7 +53,7 @@ void colorPickerLocal(void);
 void CMYKselector();
 void PickerSelector(lv_obj_t dst, lv_cpicker_color_mode_t new_mode);
 void colorSample();
-void loginScreen();
+void loginScreen(); //TODO: fazer a tela de login. Código em SmartControl
 void dashboard();
 void tabs();
 
@@ -66,6 +67,12 @@ void rgbSample();
 void colorToSampleLineCMYK();
 
 void list_of_patterns();
+
+void list_of_files_roller_files();
+
+bool change_socket_to();
+
+bool can_start_socket();
 
 void hsv_plus_minus(lv_obj_t target);
 
@@ -81,9 +88,13 @@ void sliders_cmyk(lv_obj_t target);
 
 static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event);
 static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event);
+static void load_matrix_button_roller_files_cb(lv_obj_t * obj, lv_event_t event);
 
 static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event); //callback do switch do hsv
 static void btn_start_cb(lv_obj_t * obj, lv_event_t event); //callback botão start
+
+//setup
+static void event_handler_socket_switch(lv_obj_t * obj, lv_event_t event);
 
 //HSV
 static void txtarea_hue_cb(lv_obj_t * obj, lv_event_t event); 
@@ -107,6 +118,21 @@ void cpicker_cb(lv_obj_t * obj, lv_event_t event);
 
 void exclude_file_cb(lv_obj_t * obj, lv_event_t event);
 
+//----------------- SYSTEM ---------------------
+//info
+void infoWiFi(lv_obj_t target);
+void infoSock(lv_obj_t target);
+void fileManager(lv_obj_t target);
+
+//setup
+void setupCredentials(lv_obj_t target);
+void setupCalibrate(lv_obj_t target);
+void setupEnableSock(lv_obj_t target); //switch button - salva em arquivo
+void setupChangeLogin(lv_obj_t target);
+void setupEnableLogin(lv_obj_t target); //switch button - salva em arquivo
+void setupDisableWiFi(lv_obj_t target);
+void setupWiFiMode(lv_obj_t target);
+
 //-------------------- tasks ------------------------
 void pump(void *pvParameters);
 void fromPicker(void *pvParameters);
@@ -117,6 +143,7 @@ static void tab_feeding_spinbox_cb(lv_obj_t *obj, lv_event_t event);
 
 lv_obj_t * hsv_matrix_button;
 lv_obj_t * load_color_mtx_btn;
+lv_obj_t * load_files_mtx_btn;
 
 lv_obj_t * slider_label_sat;
 lv_obj_t * slider_label_hue;
@@ -157,10 +184,15 @@ lv_obj_t * slider_label_y;
 lv_obj_t * slider_label_k;
 
 lv_obj_t * roller_patterns;
+lv_obj_t * roller_files;
 
 lv_obj_t *tabview;
 
 lv_obj_t * msgBoxDel;
+
+//system
+lv_obj_t *tab_info;
+lv_obj_t *tab_setup;
 
 static lv_style_t style_line;
 static lv_style_t style_line_cmyk;
@@ -175,6 +207,12 @@ static const char * load_btns[] = {LV_SYMBOL_UP,
                                   LV_SYMBOL_DOWNLOAD,
                                             ""};
 
+static const char * load_btns_files[] = {LV_SYMBOL_UP,
+                                           "\n",
+                                 LV_SYMBOL_DOWN,
+                                           "\n",
+                                  LV_SYMBOL_CUT,
+                                            ""};
 static const char * hsv_plus_minus_btns[] = {LV_SYMBOL_MINUS,LV_SYMBOL_PLUS,""};
 
 //========================VALORES IMPORTANTES PARA EXECUCAO=================================
@@ -188,13 +226,20 @@ rgb rgb_from_sliders;
 uint32_t spinbox_ink_volume_value  = 0; //volume de tinta
 //===============================================================
 
-uint8_t txt_area_index = 0;
-uint8_t roller_pos     = 0;
-bool list_created      = false;
+bool initSock           = true;
+bool list_created       = false;
+bool list_files_created = true;
+
+uint8_t txt_area_index  = 0;
+uint8_t roller_pos      = 0;
+
+uint8_t txt_info_dist   = 0;
 char full_msg[4]; //arquivo a excluir
 
 //-=-=-=-=-=-=-=-=-=-=-=-=-=- REQUISITOS FUNCIONAIS -=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 boolean pump_is_running     = false;
+boolean is_mode_ap          = true;
+boolean is_socket_open      = true;
 
 SemaphoreHandle_t myMutex   = NULL;
 
@@ -220,6 +265,17 @@ WiFiServer server(1234);
 //callbacks
 
 //excluir arquivo
+
+void reboot_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        if (strcmp(lv_msgbox_get_active_btn_text(obj),"Yes") == 0){
+            ESP.restart();
+        }
+        else{
+            lv_obj_del(obj);
+        }
+    }
+}
 void exclude_file_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
         if (strcmp(lv_msgbox_get_active_btn_text(obj),"Yes") == 0){
@@ -227,6 +283,19 @@ void exclude_file_cb(lv_obj_t * obj, lv_event_t event){
             lv_obj_del(msgBoxDel);
             lv_obj_del(roller_patterns);
             list_of_patterns();
+        }
+        else if (strcmp(lv_msgbox_get_active_btn_text(obj),"Cancel") == 0)
+        lv_obj_del(msgBoxDel);
+    }
+}
+
+void exclude_file_roller_files_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        if (strcmp(lv_msgbox_get_active_btn_text(obj),"Yes") == 0){
+            deleteFile(SPIFFS,full_msg);
+            lv_obj_del(msgBoxDel);
+            lv_obj_del(roller_files);
+            list_of_files_roller_files();
         }
         else if (strcmp(lv_msgbox_get_active_btn_text(obj),"Cancel") == 0)
         lv_obj_del(msgBoxDel);
@@ -479,6 +548,68 @@ static void hsv_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
         }
     }
 }
+static void load_matrix_button_roller_files_cb(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_CLICKED) {
+        const char * txt = lv_btnmatrix_get_active_btn_text(obj);
+        //PRA CIMA (é down mesmo)
+        if (strcmp(txt,LV_SYMBOL_DOWN) == 0){
+            uint16_t item = lv_roller_get_selected(roller_files);
+
+            char all_items[300];
+            memset(all_items,0,sizeof(all_items));
+            strcpy(all_items,lv_roller_get_options(roller_files));
+
+            uint8_t len_items = lv_roller_get_option_cnt(roller_files);
+
+            roller_pos = roller_pos == len_items-1 ? 0 : item+1; 
+            lv_roller_set_selected(roller_files,(uint16_t) roller_pos,LV_ANIM_ON);    
+        }
+        //PRA BAIXO (é up mesmo)
+        else if ( strcmp(txt,LV_SYMBOL_UP) == 0){
+            uint16_t item = lv_roller_get_selected(roller_files);
+            Serial.print("ITEM: ");
+            Serial.println(item);
+            
+            char all_items[300];
+            memset(all_items,0,sizeof(all_items));
+            strcpy(all_items,lv_roller_get_options(roller_files));
+
+            //uint8_t len_items = lv_roller_get_option_cnt(roller_patterns);
+
+            roller_pos = roller_pos > 0 ? roller_pos-1 : roller_pos; 
+            lv_roller_set_selected(roller_files,(uint16_t) roller_pos,LV_ANIM_ON);
+        }
+        else if (strcmp(txt,LV_SYMBOL_CUT) == 0){
+            char target[10];
+            //char full_msg[4];
+            memset(full_msg,0,sizeof(full_msg));
+            full_msg[0] = '/';
+            memset(target,0,4);
+            lv_roller_get_selected_str(roller_files,target,10);
+            
+            strcat(full_msg,target);
+
+            //deleteFile(SPIFFS,full_msg);
+            //lv_obj_del(roller_patterns);
+            //list_of_patterns();
+
+            //confirma exclusao
+            static const char * btns[] ={"Yes", "Cancel", ""};
+
+            msgBoxDel = lv_msgbox_create(lv_scr_act(), NULL);
+            String really = "Deseja realmente excluir ";
+            really = really + target + "?";
+            lv_msgbox_set_text(msgBoxDel, really.c_str());
+            lv_msgbox_add_btns(msgBoxDel, btns);
+            lv_obj_set_width(msgBoxDel, 200);
+            lv_obj_set_event_cb(msgBoxDel, exclude_file_roller_files_cb);
+            lv_obj_align(msgBoxDel, NULL, LV_ALIGN_CENTER, 0, 0);
+            roller_pos = 0;
+
+        }
+    }
+
+}
 
 static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_CLICKED) {
@@ -543,6 +674,7 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
                             break;
                         }
                     }
+                    roller_pos = 0;
                 }
                 else{
                     lv_obj_t * mbox1 = lv_msgbox_create(lv_scr_act(), NULL);
@@ -578,6 +710,8 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
             lv_obj_set_width(msgBoxDel, 200);
             lv_obj_set_event_cb(msgBoxDel, exclude_file_cb);
             lv_obj_align(msgBoxDel, NULL, LV_ALIGN_CENTER, 0, 0);
+
+            roller_pos = 0;
 
         }
         else if (strcmp(txt,LV_SYMBOL_DOWNLOAD) == 0){
@@ -762,6 +896,20 @@ void cpicker_cb(lv_obj_t * obj, lv_event_t event){
     }
 }
 
+//callback do switch do socket
+static void event_handler_socket_switch(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        is_socket_open = change_socket_to();
+        static const char * btns[] ={"Yes", "No", ""};
+        msgBoxDel = lv_msgbox_create(lv_scr_act(), NULL);
+        lv_msgbox_set_text(msgBoxDel, "Reiniciar sistema agora?");
+        lv_msgbox_add_btns(msgBoxDel, btns);
+        lv_obj_set_width(msgBoxDel, 200);
+        lv_obj_set_event_cb(msgBoxDel, reboot_cb);
+        lv_obj_align(msgBoxDel, NULL, LV_ALIGN_CENTER, 0, 0);
+    }
+}
+
 //callback do switch button do HSV
 static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
@@ -856,6 +1004,44 @@ static void list_cb(lv_obj_t * obj, lv_event_t event){
     }
 }
 
+void list_of_files_roller_files(){
+    String result;
+    result = getFilenames(SPIFFS,"/",1);
+    result.replace("/","");
+    result.replace("|","\n");
+
+    Serial.print("RESULT: ");
+    Serial.println(result);
+    Serial.println("====");
+
+    char items_to_list[300];
+    memset(items_to_list,0,sizeof(items_to_list));
+    result.toCharArray(items_to_list,sizeof(items_to_list));
+    items_to_list[0] = ' ';
+
+
+    //Create a roller
+    roller_files = lv_roller_create(tab_info, NULL);
+    lv_roller_set_options(roller_files, items_to_list, LV_ROLLER_MODE_INIFINITE);
+
+    lv_roller_set_fix_width(roller_files,150);
+    lv_roller_set_visible_row_count(roller_files, 3);
+    lv_obj_align(roller_files, NULL, LV_ALIGN_IN_BOTTOM_LEFT, 0, -16);
+
+    list_files_created = true;
+    //TODO: callback
+/*
+    char *it;
+    it = strtok(items_to_list,"|");
+    
+    while (it != NULL){
+        Serial.println(it);
+        list_ev = lv_list_add_btn(target, NULL, it);
+        lv_obj_set_event_cb(list_ev, list_cb);
+        it = strtok(NULL,"|");     
+    }*/
+}
+
 void list_of_patterns(){
     String result;
     result = getFilenames(SPIFFS,"/",1);
@@ -906,6 +1092,42 @@ void list_of_patterns(){
         lv_obj_set_event_cb(list_ev, list_cb);
         it = strtok(NULL,"|");     
     }*/
+}
+
+bool can_start_socket(){
+    String st = readFile(SPIFFS, SOCK_FILE);
+    if ( st == ""){
+        return true;
+    }
+    else if (st == "disable"){
+        //esta desativado
+        return false;
+    }
+    else{
+        //deve ser enable. outra condicao cai aqui
+        return true;
+    }
+}
+
+bool change_socket_to(){
+    String st = readFile(SPIFFS, SOCK_FILE);
+    if ( st == ""){
+        //nao existe, entao o padrao é enable. desativar
+        writeFile(SPIFFS, SOCK_FILE, "disable");
+        return false;
+    }
+    else if (st == "disable"){
+        //esta desativado, entao ativa
+        deleteFile(SPIFFS, SOCK_FILE);
+        writeFile(SPIFFS, SOCK_FILE, "enable");
+        return true;
+    }
+    else{
+        //deve ser enable, entao desativa. outra condicao cai aqui
+        deleteFile(SPIFFS, SOCK_FILE);
+        writeFile(SPIFFS, SOCK_FILE, "disable");
+        return false;
+    }
 }
 
 void colorToSample(){
@@ -1146,6 +1368,22 @@ void mtx_load_color(lv_obj_t  target){
     lv_obj_set_event_cb(load_color_mtx_btn, load_matrix_button_cb);
 }
 
+void mtx_load_files_btn(lv_obj_t  target){
+    load_files_mtx_btn = lv_btnmatrix_create(&target, NULL);
+    lv_btnmatrix_set_map(load_files_mtx_btn, load_btns_files);
+
+    lv_obj_align(load_files_mtx_btn, &target, LV_ALIGN_IN_BOTTOM_RIGHT, 198, -6);
+
+    lv_obj_set_height(load_files_mtx_btn,120);
+    lv_obj_set_width(load_files_mtx_btn,50);
+
+    lv_btnmatrix_set_one_check(load_files_mtx_btn, true);
+    //lv_btnmatrix_set_focused_btn(load_color_mtx_btn,0);
+    
+    lv_btnmatrix_set_btn_ctrl_all(load_files_mtx_btn, LV_BTNMATRIX_CTRL_CHECKABLE);
+    lv_obj_set_event_cb(load_files_mtx_btn, load_matrix_button_roller_files_cb);
+}
+
 void PickerSelector(lv_obj_t dst,lv_cpicker_color_mode_t new_mode){
 
     cpicker = lv_cpicker_create(&dst, NULL);
@@ -1289,13 +1527,132 @@ void type_values_hsv(lv_obj_t target){
     lv_obj_set_event_cb(txt_areas[2], txtarea_val_cb);
 }
 
+//info
+void infoWiFi(lv_obj_t target){
+    IPAddress myIP;
+    if (is_mode_ap){
+        myIP = WiFi.softAPIP();
+    }
+    else{
+        myIP = WiFi.localIP();
+    }
+    
+
+    String ipaddr = "Address: " + String(myIP.toString().c_str());
+    lv_obj_t *label_ip = lv_label_create(&target, NULL); 
+    lv_label_set_text(label_ip, ipaddr.c_str());
+    lv_obj_align(label_ip, NULL, LV_ALIGN_IN_TOP_LEFT, 0, txt_info_dist);
+
+    String str_buf;
+    //SSID - botao Change ao lado
+    lv_obj_t *label_ssid = lv_label_create(&target, NULL);
+    str_buf      = "SSID: " + String(SSID); 
+    lv_label_set_text(label_ssid, str_buf.c_str());
+    txt_info_dist += 20;
+    lv_obj_align(label_ssid, NULL, LV_ALIGN_IN_TOP_LEFT, 0, txt_info_dist);
+
+    //PASSWD - botao Change ao lado
+    lv_obj_t *label_passwd = lv_label_create(&target, NULL);
+    str_buf      = "Passwd: " + String(PASSWD); 
+    lv_label_set_text(label_passwd, str_buf.c_str());
+    txt_info_dist += 20;
+    lv_obj_align(label_passwd, NULL, LV_ALIGN_IN_TOP_LEFT, 0, txt_info_dist);
+    
+    //MODE
+    lv_obj_t *label_mode = lv_label_create(&target, NULL);
+    if (is_mode_ap){
+        str_buf = "Mode: Access Point"; 
+    }
+    else{
+        str_buf      = "Mode: Station"; 
+    }
+    txt_info_dist += 20;
+    lv_label_set_text(label_mode, str_buf.c_str());
+    lv_obj_align(label_mode, NULL, LV_ALIGN_IN_TOP_LEFT, 0, txt_info_dist);
+}
+
+void infoSock(lv_obj_t target){
+    txt_info_dist += 20;
+    if(can_start_socket()){
+        lv_obj_t *label_sock = lv_label_create(&target, NULL);
+        lv_label_set_text(label_sock, "Listen to ColorPicker: YES");
+        lv_obj_align(label_sock, NULL, LV_ALIGN_IN_TOP_LEFT, 0, txt_info_dist);
+    }
+    else{
+        lv_obj_t *label_sock = lv_label_create(&target, NULL);
+        lv_label_set_text(label_sock, "Listen to ColorPicker: NO");
+        lv_obj_align(label_sock, NULL, LV_ALIGN_IN_TOP_LEFT, 0, txt_info_dist);
+    }
+}
+
+void fileManager(lv_obj_t target){
+    //carregar arquivos para um roller e permitir exclusao
+}
+
+//setup
+void setupCredentials(lv_obj_t target){
+    //escrever /credentials.ini
+    //modificar inicializacao para 'if /credentials.ini exists'
+
+}
+
+void setupCalibrate(lv_obj_t target){
+
+}
+
+void setupEnableSock(lv_obj_t target){
+    //TODO: criar label esquerdo e direito
+    //TODO: testar a mudança de estado sem acionar o callback
+    //TODO: mudar label  Listen do info
+    lv_obj_t *label_sock_title = lv_label_create(&target, NULL);
+    lv_label_set_text(label_sock_title, "Socket listener");
+    lv_obj_align(label_sock_title, NULL, LV_ALIGN_IN_TOP_LEFT, 2, 0);
+
+    lv_obj_t *label_sock_off = lv_label_create(&target, NULL);
+    lv_label_set_text(label_sock_off, "OFF");
+    lv_obj_align(label_sock_off, NULL, LV_ALIGN_IN_TOP_LEFT, 0, 25);
+
+
+    lv_obj_t *switch_socket = lv_switch_create(&target, NULL);
+    lv_obj_align(switch_socket, NULL, LV_ALIGN_IN_TOP_LEFT, 40, 20);
+
+    lv_obj_t *label_sock_on = lv_label_create(&target, NULL);
+    lv_label_set_text(label_sock_on, "ON");
+    lv_obj_align(label_sock_on, NULL, LV_ALIGN_IN_TOP_LEFT, 96, 25);
+
+    if (can_start_socket()){
+        lv_switch_toggle(switch_socket, LV_ANIM_OFF);
+    }
+
+    lv_obj_set_event_cb(switch_socket, event_handler_socket_switch);
+
+    //TODO: fazer msgbox para perguntar se deve fazer reboot
+    //reboot: ESP.restart()s
+}
+
+void setupChangeLogin(lv_obj_t target){
+
+}
+
+void setupEnableLogin(lv_obj_t target){
+
+}
+
+void setupDisableWiFi(lv_obj_t target){
+
+}
+
+void setupWiFiMode(lv_obj_t target){
+
+}
+
 void tabs(){
     /* CRIA UM OBJETO TABVIEW */
     tabview = lv_tabview_create(lv_scr_act(), NULL); //TABVIEW PRINCIPAL
 
     /* tabs principais */
     lv_obj_t *tab_color = lv_tabview_add_tab(tabview, "Color");
-    lv_obj_t *tab_setup = lv_tabview_add_tab(tabview, "System");
+    lv_obj_t *tab_system = lv_tabview_add_tab(tabview, "System");
     lv_obj_t *tab_about = lv_tabview_add_tab(tabview, "About");
 
     lv_obj_t *tabview_color;
@@ -1309,7 +1666,7 @@ void tabs(){
     lv_obj_set_style_local_pad_top(tabview,LV_TABVIEW_PART_TAB_BTN,LV_STATE_DEFAULT,4);
     lv_obj_set_style_local_pad_top(tabview_color,LV_TABVIEW_PART_TAB_BTN,LV_STATE_DEFAULT,1);
 
-    //tabs secundárias
+    //tabs secundárias - Color
     color_cmyk = lv_tabview_add_tab(tabview_color, "CMYK");
     color_rgb  = lv_tabview_add_tab(tabview_color, "RGB");
     color_hsv  = lv_tabview_add_tab(tabview_color, "HSV");
@@ -1327,10 +1684,35 @@ void tabs(){
     
 
     //--------------------------TAB 2: SYSTEM-------------------------------------------
-    lv_obj_t *l2 = lv_label_create(tab_setup, NULL);
-    lv_label_set_text(l2, "Aba System");
-    lv_obj_align(l2, NULL, LV_ALIGN_IN_TOP_MID, 0, 10);
+    //lv_obj_t *l2 = lv_label_create(tab_setup, NULL);
+    //lv_label_set_text(l2, "Aba System");
+    //lv_obj_align(l2, NULL, LV_ALIGN_IN_TOP_MID, 0, 10);
 
+    //tabs secundárias - System
+    lv_obj_t *tabview_system;
+    tabview_system =  lv_tabview_create(tab_system, NULL);
+
+    lv_obj_align(tabview_system, NULL, LV_ALIGN_CENTER, 0, 0);
+
+    tab_info   = lv_tabview_add_tab(tabview_system, "Info");
+    tab_setup  = lv_tabview_add_tab(tabview_system, "Setup");
+
+    lv_obj_set_style_local_pad_bottom(tabview,LV_TABVIEW_PART_TAB_BTN,LV_STATE_DEFAULT,4);
+    lv_obj_set_style_local_pad_bottom(tabview_system,LV_TABVIEW_PART_TAB_BTN,LV_STATE_DEFAULT,4);
+
+    lv_obj_set_style_local_pad_top(tabview,LV_TABVIEW_PART_TAB_BTN,LV_STATE_DEFAULT,4);
+    lv_obj_set_style_local_pad_top(tabview_system,LV_TABVIEW_PART_TAB_BTN,LV_STATE_DEFAULT,1);
+
+    lv_tabview_set_btns_pos(tabview_system, LV_TABVIEW_TAB_POS_BOTTOM);
+
+    list_of_files_roller_files();
+    mtx_load_files_btn(*tab_info);
+
+    setupEnableSock(*tab_setup);
+
+
+     /* UMA ANIMAÇÃO SIMPLES (OPCIOINAL)*/
+    lv_tabview_set_anim_time(tabview, 1000);
     //--------------------------TAB 3: ABOUT-------------------------------------------
     lv_obj_t *l3 = lv_label_create(tab_about, NULL);
     String txtAbout = " Author: Djames Suhanko\n";;
@@ -1451,7 +1833,6 @@ void setup() {
 
     //TODO: Mostrar o ip no dashboard
     WiFi.softAP(SSID,PASSWD);
-    IPAddress myIp = WiFi.localIP();
 
     hsv_values.h = 0;
     hsv_values.s = 100;
@@ -1479,7 +1860,11 @@ void setup() {
     Wire.write(0xFF);
     Wire.endTransmission();
 
-    server.begin();
+    //TODO: fazer função de ler e avaliar
+    if (can_start_socket()){
+        server.begin();
+    }
+    
 
     lv_init();
 
@@ -1556,6 +1941,9 @@ void setup() {
     Serial.println(teste3.r);
     Serial.println(teste3.g);
     Serial.println(teste3.b);
+
+    infoWiFi(*tab_info);
+    infoSock(*tab_info);
 
     /* Essa tarefa recebe os valores CMYK do picker e atribui à variável
     values[n]. Fazendo isso, automaticamente a interface será atualizada.
