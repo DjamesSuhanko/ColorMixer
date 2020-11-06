@@ -234,7 +234,7 @@ uint8_t txt_area_index  = 0;
 uint8_t roller_pos      = 0;
 
 uint8_t txt_info_dist   = 0;
-char full_msg[4]; //arquivo a excluir
+char full_msg[20]; //arquivo a excluir
 
 //-=-=-=-=-=-=-=-=-=-=-=-=-=- REQUISITOS FUNCIONAIS -=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 boolean pump_is_running     = false;
@@ -292,6 +292,8 @@ void exclude_file_cb(lv_obj_t * obj, lv_event_t event){
 void exclude_file_roller_files_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
         if (strcmp(lv_msgbox_get_active_btn_text(obj),"Yes") == 0){
+            Serial.println(full_msg);
+            Serial.println("^^^^^^");
             deleteFile(SPIFFS,full_msg);
             lv_obj_del(msgBoxDel);
             lv_obj_del(roller_files);
@@ -580,14 +582,23 @@ static void load_matrix_button_roller_files_cb(lv_obj_t * obj, lv_event_t event)
             lv_roller_set_selected(roller_files,(uint16_t) roller_pos,LV_ANIM_ON);
         }
         else if (strcmp(txt,LV_SYMBOL_CUT) == 0){
-            char target[10];
+            char target[20];
             //char full_msg[4];
             memset(full_msg,0,sizeof(full_msg));
             full_msg[0] = '/';
-            memset(target,0,4);
-            lv_roller_get_selected_str(roller_files,target,10);
+            memset(target,0,sizeof(target));
+            lv_roller_get_selected_str(roller_files,target,20);
             
-            strcat(full_msg,target);
+            if (target[0] == ' '){
+                target[0] = '/';
+                strcpy(full_msg, target);
+            }
+            else{
+                strcat(full_msg,target);
+            }
+            Serial.println("full_msg e target");
+            Serial.println(full_msg);
+            Serial.println(target);
 
             //deleteFile(SPIFFS,full_msg);
             //lv_obj_del(roller_patterns);
@@ -613,7 +624,7 @@ static void load_matrix_button_roller_files_cb(lv_obj_t * obj, lv_event_t event)
 
 static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_CLICKED) {
-        char buf[4];
+        char buf[20];
         const char * txt = lv_btnmatrix_get_active_btn_text(obj);
         //PRA CIMA (é down mesmo)
         if (strcmp(txt,LV_SYMBOL_DOWN) == 0){
@@ -686,7 +697,7 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
             }
         }
         else if (strcmp(txt,LV_SYMBOL_CUT) == 0){
-            char target[4];
+            char target[20];
             //char full_msg[4];
             memset(full_msg,0,sizeof(full_msg));
             full_msg[0] = '/';
@@ -716,7 +727,7 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
         }
         else if (strcmp(txt,LV_SYMBOL_DOWNLOAD) == 0){
             memset(buf,0,sizeof(buf));
-            char target[4];
+            char target[20];
             lv_roller_get_selected_str(roller_patterns,target,4);
             buf[0] = '/';
             strcat(buf,target);
@@ -923,7 +934,7 @@ static void event_handler_hsv_switch(lv_obj_t * obj, lv_event_t event){
                 lv_obj_set_hidden(txt_areas[i],false);
             }
 
-            char buf[4];
+            char buf[20];
             memset(buf,0,sizeof(buf));
             String(hsv_values.h).toCharArray(buf,sizeof(buf));
             lv_textarea_set_text(txt_areas[0],buf);
