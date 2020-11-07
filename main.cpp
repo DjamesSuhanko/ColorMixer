@@ -2,7 +2,7 @@
 Author:  Djames Suhanko <djames.suhanko@gmail.com>
 Website: https://www.dobitaobyte.com.br
 Youtube: youtube.com/dobitaobytebrasil
-
+~/.platformio/packages/framework-arduinoespressif32/tools/partitions/default.csv
 You are free to use this code, just preserve author reference.
 */
 
@@ -23,7 +23,8 @@ You are free to use this code, just preserve author reference.
 
 #define SOCK_FILE         "/socket.ini"
 #define WIFI_FILE         "/wifi.ini"
-#define PASSWD_LOGIN_FILE "/login.ini"
+#define PASSWD_LOGIN_FILE "/loginP.ini"
+#define ENABLE_LOGIN_FILE "/loginE.ini"
 
 #define SSID   "colorMixer"
 #define PASSWD "dobitaobyte"
@@ -77,6 +78,7 @@ void list_of_files_roller_files();
 //setup socket
 bool change_socket_to();
 bool can_start_socket();
+bool change_login_to();
 
 //setup wifi
 bool change_wifi_to();
@@ -103,6 +105,7 @@ static void btn_start_cb(lv_obj_t * obj, lv_event_t event); //callback botão st
 
 //setup
 static void event_handler_socket_switch(lv_obj_t * obj, lv_event_t event);
+static void event_handler_login_switch(lv_obj_t * obj, lv_event_t event);
 
 //HSV
 static void txtarea_hue_cb(lv_obj_t * obj, lv_event_t event); 
@@ -130,11 +133,10 @@ void exclude_file_cb(lv_obj_t * obj, lv_event_t event);
 //info
 void infoWiFi(lv_obj_t target);
 void infoSock(lv_obj_t target);
-void fileManager(lv_obj_t target);
 
 //setup
 void setupCredentials(lv_obj_t target);
-void setupCalibrate(lv_obj_t target);
+void setupCalibratePump(lv_obj_t target);
 void setupEnableSock(lv_obj_t target); //switch button - salva em arquivo
 void setupChangeLogin(lv_obj_t target);
 void setupEnableLogin(lv_obj_t target); //switch button - salva em arquivo
@@ -710,7 +712,7 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
         if (strcmp(txt,LV_SYMBOL_DOWN) == 0){
             uint16_t item = lv_roller_get_selected(roller_patterns);
 
-            char all_items[150];
+            char all_items[300];
             memset(all_items,0,sizeof(all_items));
             strcpy(all_items,lv_roller_get_options(roller_patterns));
 
@@ -725,7 +727,7 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
             Serial.print("ITEM: ");
             Serial.println(item);
             
-            char all_items[150];
+            char all_items[300];
             memset(all_items,0,sizeof(all_items));
             strcpy(all_items,lv_roller_get_options(roller_patterns));
 
@@ -745,19 +747,19 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
             if (list_created){
                 memset(buf,0,sizeof(buf));
                 //lv_roller_get_selected_str(roller_patterns,buf,sizeof(buf));
-                uint16_t num_of_items = lv_roller_get_option_cnt(roller_patterns);
-                // identico ao numero de itens na lista. Os itens começam em 0, então subrair 2 para
+                uint16_t num_of_items = lv_roller_get_option_cnt(roller_patterns)+10;
                 //selecionar o ultimo (o primeiro esta nulo) e manter o numero para adicionar. TODO: fazer padding left de 2.
                 //lv_roller_set_selected(roller_patterns,num_of_items-2,LV_ANIM_ON);
 
-                if (num_of_items < 5){ 
+                if (num_of_items < 20){ //era pra ser menor que 4, mas tem outros arquivos agora. TODO: tratar 
                     //TODO: aumentar patterns salvos?
                     String opts = lv_roller_get_options(roller_patterns);
-                    Serial.println(opts);
-                    char ch[4] = {'1','2','3','4'};
-                    for (uint8_t i=0;i<4;i++){
-                        if (strrchr(opts.c_str(),ch[i]) == NULL){
-                            sprintf(buf, "/%03d", i+1);
+                    
+                    for (uint8_t i=1;i<num_of_items;i++){
+                        //strchr retorna o ponteiro para a primeira ocorrencia em c_str().
+                        if (strrchr(opts.c_str(), String(i).c_str()[0]) == NULL){
+                            sprintf(buf, "/%03d", i);
+                            Serial.print("SALVANDO: ");
                             Serial.println(buf);
                             writeFile(SPIFFS,buf,CMYK_txt.c_str());
                             lv_obj_del(roller_patterns);
@@ -769,7 +771,7 @@ static void load_matrix_button_cb(lv_obj_t * obj, lv_event_t event){
                 }
                 else{
                     lv_obj_t * mbox1 = lv_msgbox_create(lv_scr_act(), NULL);
-                    lv_msgbox_set_text(mbox1, "Maximo de 4 itens preenchido");
+                    lv_msgbox_set_text(mbox1, "Maximo de itens preenchido");
                     lv_obj_set_width(mbox1, 180);
                     lv_msgbox_start_auto_close(mbox1, 2000);
                     lv_obj_align(mbox1, NULL, LV_ALIGN_CENTER, 0, 0);
@@ -1001,6 +1003,19 @@ static void event_handler_wifi_switch(lv_obj_t * obj, lv_event_t event){
     }
 }
 
+static void event_handler_login_switch(lv_obj_t * obj, lv_event_t event){
+    if(event == LV_EVENT_VALUE_CHANGED) {
+        unused = change_login_to();
+        static const char * btns[] ={"Yes", "No", ""};
+        msgBoxDel = lv_msgbox_create(lv_scr_act(), NULL);
+        lv_msgbox_set_text(msgBoxDel, "Reiniciar sistema agora?");
+        lv_msgbox_add_btns(msgBoxDel, btns);
+        lv_obj_set_width(msgBoxDel, 200);
+        lv_obj_set_event_cb(msgBoxDel, reboot_cb);
+        lv_obj_align(msgBoxDel, NULL, LV_ALIGN_CENTER, 0, 0);
+    }
+}
+
 //callback do switch do socket
 static void event_handler_socket_switch(lv_obj_t * obj, lv_event_t event){
     if(event == LV_EVENT_VALUE_CHANGED) {
@@ -1150,32 +1165,42 @@ void list_of_files_roller_files(){
 void list_of_patterns(){
     String result;
     result = getFilenames(SPIFFS,"/",1);
+     Serial.println(result);
+    Serial.println("^^^^^");
     result.replace("/","");
     result.replace("|","\n");
 
-    Serial.print("RESULT: ");
-    Serial.println(result);
-    Serial.println("====");
-
-    char items_to_list[150];
+    char items_to_list[300];
     memset(items_to_list,0,sizeof(items_to_list));
     result.toCharArray(items_to_list,sizeof(items_to_list));
     items_to_list[0] = ' ';
+   
 
-    //Ordenando a lista    
-    char ordered_list[150];
+     //Ordenando a lista    
+    char ordered_list[300];
     memset(ordered_list,0,sizeof(ordered_list));
 
-    uint8_t max_items = 4;
-    char *fields_of[max_items] = {"001\n","002\n","003\n","004\n"};
+    uint8_t max_items = 10;
 
-    for (uint8_t i=0;i<max_items;i++){
-        char *res = strstr(items_to_list,fields_of[i]);
-        if (res != NULL && strcmp(res,"\n") != 0){
-            
-            strcat(ordered_list,fields_of[i]);
+    char file_pattern[5];
+    memset(file_pattern,0,sizeof(file_pattern));
+    uint8_t k = 0;
+    String content = result;
+    for (uint8_t i=1;i<max_items;i++){
+        int pos = content.indexOf(String(i).c_str());
+        if (pos > -1){
+            for (uint8_t j=pos-2;j<pos+1;j++){
+                file_pattern[k] = result[j];
+                k++;
+            }
+            file_pattern[3] = '\n'; 
+            strcat(ordered_list,file_pattern);       
+            k=0;
+            memset(file_pattern,0,sizeof(file_pattern));
         }
     }
+    Serial.print("ordered_list: ");
+    Serial.print(ordered_list);
 
     //Create a roller
     roller_patterns = lv_roller_create(color_load, NULL);
@@ -1233,6 +1258,23 @@ bool can_start_socket(){
     }
 }
 
+bool can_start_login(){ //TODO: chamar no loginScreen
+    String st = readFile(SPIFFS, ENABLE_LOGIN_FILE);
+    Serial.print("Conteudo do loginE.ini");
+    Serial.println(st);
+    if ( st == ""){
+        return true;
+    }
+    else if (st == "disable"){
+        //esta desativado
+        return false;
+    }
+    else{
+        //deve ser enable. outra condicao cai aqui
+        return true;
+    }
+}
+
 bool change_wifi_to(){
     String st = readFile(SPIFFS, WIFI_FILE);
     if ( st == ""){
@@ -1250,6 +1292,27 @@ bool change_wifi_to(){
         //deve ser enable, entao desativa. outra condicao cai aqui
         deleteFile(SPIFFS, WIFI_FILE);
         writeFile(SPIFFS, WIFI_FILE, "disable");
+        return false;
+    }
+}
+
+bool change_login_to(){
+    String st = readFile(SPIFFS, ENABLE_LOGIN_FILE);
+    if ( st == ""){
+        //nao existe, entao o padrao é enable. desativar
+        writeFile(SPIFFS, ENABLE_LOGIN_FILE, "disable");
+        return false;
+    }
+    else if (st == "disable"){
+        //esta desativado, entao ativa
+        deleteFile(SPIFFS, ENABLE_LOGIN_FILE);
+        writeFile(SPIFFS, ENABLE_LOGIN_FILE, "enable");
+        return true;
+    }
+    else{
+        //deve ser enable, entao desativa. outra condicao cai aqui
+        deleteFile(SPIFFS, ENABLE_LOGIN_FILE);
+        writeFile(SPIFFS, ENABLE_LOGIN_FILE, "disable");
         return false;
     }
 }
@@ -1730,10 +1793,6 @@ void infoSock(lv_obj_t target){
     }
 }
 
-void fileManager(lv_obj_t target){
-    //carregar arquivos para um roller e permitir exclusao
-}
-
 //setup
 void setupCredentials(lv_obj_t target){
     //escrever /credentials.ini
@@ -1741,7 +1800,7 @@ void setupCredentials(lv_obj_t target){
 
 }
 
-void setupCalibrate(lv_obj_t target){
+void setupCalibratePump(lv_obj_t target){
 
 }
 
@@ -1777,7 +1836,27 @@ void setupChangeLogin(lv_obj_t target){
 }
 
 void setupEnableLogin(lv_obj_t target){
+    lv_obj_t *label_title = lv_label_create(&target, NULL);
+    lv_label_set_text(label_title, "Enable login");
+    lv_obj_align(label_title, NULL, LV_ALIGN_IN_TOP_LEFT, 2, 110);
 
+    lv_obj_t *label_login_off = lv_label_create(&target, NULL);
+    lv_label_set_text(label_login_off, "OFF");
+    lv_obj_align(label_login_off, NULL, LV_ALIGN_IN_TOP_LEFT, 0, 135);
+
+
+    lv_obj_t *switch_login = lv_switch_create(&target, NULL);
+    lv_obj_align(switch_login, NULL, LV_ALIGN_IN_TOP_LEFT, 40, 130);
+
+    lv_obj_t *label_login_on = lv_label_create(&target, NULL);
+    lv_label_set_text(label_login_on, "ON");
+    lv_obj_align(label_login_on, NULL, LV_ALIGN_IN_TOP_LEFT, 96, 135);
+
+    if (can_start_login()){
+        lv_switch_toggle(switch_login, LV_ANIM_OFF);
+    }
+
+    lv_obj_set_event_cb(switch_login, event_handler_login_switch);
 }
 
 void setupDisableWiFi(lv_obj_t target){
@@ -1901,6 +1980,7 @@ void tabs(){
 
     setupEnableSock(*tab_setup);
     setupDisableWiFi(*tab_setup);
+    setupEnableLogin(*tab_setup);
 
 
      /* UMA ANIMAÇÃO SIMPLES (OPCIOINAL)*/
@@ -2037,7 +2117,7 @@ void setup() {
     //SPIFFS.format();
     if(!SPIFFS.begin(true)){
         Serial.println("SPIFFS Mount Failed");
-        return;
+        while (true);
     }
 
     //if (!pcfSmart.startI2C(21,22)){
@@ -2077,28 +2157,21 @@ void setup() {
     indev_drv.read_cb = my_input_read;
     lv_indev_drv_register(&indev_drv);
 
-    rgb out_rgb;
-    out_rgb.r = 220;
-    out_rgb.g = 180;
-    out_rgb.b = 90;
+    cmyk_values_struct.c = 0;
+    cmyk_values_struct.m = 0;
+    cmyk_values_struct.y = 0;
+    cmyk_values_struct.k = 0;
 
-    hsv out_hsv;
-    out_hsv.h = 284;
-    out_hsv.s = 46;
-    out_hsv.v = 60;
-
-    rgb in_rgb;
-    in_rgb.r = 200;
-    in_rgb.g = 100;
-    in_rgb.b = 190;
-
-    hsv in_hsv;
-    in_hsv.h = 192.94;
-    in_hsv.s = 100;
-    in_hsv.v = 255;
-
-    loginScreen();
-
+    if (can_start_login()){
+        loginScreen();
+    }
+    else{
+        tabs();
+        delay(2000);
+        infoWiFi(*tab_info);
+        infoSock(*tab_info);
+    }
+    
     /* Essa tarefa recebe os valores CMYK do picker e atribui à variável
     values[n]. Fazendo isso, automaticamente a interface será atualizada.
     O início da mistura só pode ser feito pelo botão iniciar para não ter
